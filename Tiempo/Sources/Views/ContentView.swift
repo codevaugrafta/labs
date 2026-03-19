@@ -19,12 +19,12 @@ struct ContentView: View {
                     Label("Events", systemImage: "list.bullet.clipboard")
                 }
 
-            PlaceholderTab(title: "Timeline", icon: "chart.bar.xaxis")
+            TimelineView()
                 .tabItem {
                     Label("Timeline", systemImage: "chart.bar.xaxis")
                 }
 
-            PlaceholderTab(title: "Goals", icon: "target")
+            GoalsView()
                 .tabItem {
                     Label("Goals", systemImage: "target")
                 }
