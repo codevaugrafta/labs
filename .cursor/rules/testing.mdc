@@ -1,0 +1,28 @@
+---
+description: Testing conventions for all projects
+globs: ["**/Tests/**", "**/*.test.*", "**/*.spec.*"]
+alwaysApply: false
+---
+
+# Testing Rules
+
+## Structure
+- AAA pattern: Arrange, Act, Assert (blank lines between)
+- One logical assertion per test (multiple #expect calls fine if testing one behavior)
+- Descriptive names: "should reject expired tokens" not "test1"
+
+## Swift Testing
+- Use @Suite and @Test, not XCTest
+- In-memory ModelContainer: `ModelConfiguration(isStoredInMemoryOnly: true)`
+- @MainActor on all SwiftData tests
+- Use Tiempo.Category (not Category) to avoid ObjC name collision
+
+## Boundaries
+- Mock at system boundaries (network, filesystem, time) — not internal modules
+- For SwiftData: use real in-memory containers, not mocks
+- Test both success and failure paths for async code
+
+## What to Test
+- Engine logic (TimeEntryEngine, ScheduleEngine, AccountabilityEngine, GoalsEngine)
+- Model computed properties (duration, formattedDuration)
+- Edge cases: empty inputs, nil values, boundary conditions

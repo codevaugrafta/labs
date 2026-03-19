@@ -1,0 +1,48 @@
+---
+description: Swift and SwiftUI development rules for Tiempo and other native macOS/iOS projects
+globs: ["**/*.swift"]
+alwaysApply: false
+---
+
+# Swift Development Rules
+
+## Architecture
+- MVVM with @Observable macro (macOS 15+)
+- Directory structure: Engine/, Models/, Views/, Extensions/
+- One file per type. File name matches type name.
+- SwiftData @Model for persistence. @Query in views.
+
+## Swift Style
+- Swift 6 strict concurrency: @MainActor on view models, Sendable conformance
+- Prefer structs over classes unless reference semantics needed
+- camelCase for vars/funcs, PascalCase for types
+- Explicit return types on public functions
+- Use `import Foundation` not `import UIKit` for non-UI code
+
+## SwiftUI
+- NavigationStack, not NavigationView
+- SF Symbols for all icons (SF Pro for text, SF Mono for data)
+- .task {} for async work, not .onAppear with Task {}
+- @Environment for dependency injection
+- Native macOS controls — no custom chrome
+- @Query for SwiftData fetching, never manual fetch in views
+
+## Testing
+- Swift Testing framework: @Test, @Suite, #expect
+- In-memory ModelContainer for data tests
+- Test behavior through public interfaces, not implementation
+- One logical assertion per test
+- Use UUID .id comparison, never === for SwiftData models
+
+## Patterns to Avoid
+- No === for SwiftData model comparison (use .id)
+- No Timer.publish on struct views (use .task + async loop)
+- No try? that silently swallows errors (use do/catch, surface via lastError)
+- No @StateObject (use @State with @Observable)
+- No SELECT * equivalent — fetch only what's needed
+
+## Build Commands
+- `cd Tiempo && swift build` — compile
+- `cd Tiempo && swift test` — run all tests
+- `cd Tiempo && swift build -c release` — release build
+- `open Tiempo/.build/release/Tiempo` — launch the app
