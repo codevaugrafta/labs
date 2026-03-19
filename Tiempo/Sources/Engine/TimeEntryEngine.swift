@@ -241,6 +241,51 @@ final class TimeEntryEngine {
         save()
     }
 
+    /// Permanently soft-deletes a category AND all its associated entries, blocks, goals.
+    func forceDeleteCategory(_ category: Category) {
+        guard let modelContext else { return }
+        let now = Date()
+
+        // Stop any running timer for this category
+        if let running = findRunningEntry(for: category) {
+            stopTimer(running)
+        }
+
+        // Soft-delete all time entries
+        for entry in category.timeEntries {
+            entry.deletedAt = now
+            entry.updatedAt = now
+        }
+
+        // Soft-delete scheduled blocks
+        let catId = category.id
+        let blockDescriptor = FetchDescriptor<ScheduledBlock>(
+            predicate: #Predicate { $0.deletedAt == nil }
+        )
+        if let blocks = try? modelContext.fetch(blockDescriptor) {
+            for block in blocks where block.category?.id == catId {
+                block.deletedAt = now
+                block.updatedAt = now
+            }
+        }
+
+        // Soft-delete goals
+        let goalDescriptor = FetchDescriptor<Goal>(
+            predicate: #Predicate { $0.deletedAt == nil }
+        )
+        if let goals = try? modelContext.fetch(goalDescriptor) {
+            for goal in goals where goal.category?.id == catId {
+                goal.deletedAt = now
+                goal.updatedAt = now
+            }
+        }
+
+        // Soft-delete the category itself
+        category.deletedAt = now
+        category.updatedAt = now
+        save()
+    }
+
     func canDeleteCategory(_ category: Category) -> Bool {
         guard let modelContext else { return category.timeEntries.isEmpty }
         if !category.timeEntries.isEmpty { return false }

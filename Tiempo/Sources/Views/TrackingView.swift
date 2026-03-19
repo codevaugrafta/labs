@@ -221,13 +221,20 @@ struct TrackingView: View {
         .sheet(isPresented: $showingTagManagement) {
             TagManagementView()
         }
-        .alert("Cannot Delete Category", isPresented: Binding(
+        .alert("Delete Category", isPresented: Binding(
             get: { categoryDeleteError != nil },
             set: { if !$0 { categoryDeleteError = nil } }
         )) {
-            Button("Archive Instead") {
+            Button("Archive (keep history)") {
                 if let cat = categoryToDelete {
                     engine.archiveCategory(cat)
+                }
+                categoryToDelete = nil
+                categoryDeleteError = nil
+            }
+            Button("Delete permanently", role: .destructive) {
+                if let cat = categoryToDelete {
+                    engine.forceDeleteCategory(cat)
                 }
                 categoryToDelete = nil
                 categoryDeleteError = nil
@@ -271,15 +278,7 @@ struct TrackingView: View {
         Divider()
         Button(role: .destructive) {
             categoryToDelete = category
-            if engine.canDeleteCategory(category) {
-                // Direct delete (soft-delete via deletedAt)
-                category.deletedAt = Date()
-                category.updatedAt = Date()
-                try? modelContext.save()
-                categoryToDelete = nil
-            } else {
-                categoryDeleteError = "\"\(category.name)\" has time entries. Archive it instead to keep your history."
-            }
+            categoryDeleteError = "\"\(category.name)\" has associated data. What would you like to do?"
         } label: {
             Label("Delete", systemImage: "trash")
         }
