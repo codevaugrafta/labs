@@ -196,6 +196,7 @@ struct Phase3Tests {
     @Test("Default behavior: starting new timer stops previous")
     @MainActor
     func defaultSingleTimer() throws {
+        UserDefaults.standard.set(false, forKey: "allowConcurrentTimers")
         let (engine, context) = try makeEngine()
         let work = Category(name: "Work", color: "#4A90D9")
         let exercise = Category(name: "Exercise", color: "#2ECC71")

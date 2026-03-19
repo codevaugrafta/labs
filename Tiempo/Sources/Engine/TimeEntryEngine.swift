@@ -16,7 +16,7 @@ final class TimeEntryEngine {
         set { UserDefaults.standard.set(newValue, forKey: "allowConcurrentTimers") }
     }
 
-    private var modelContext: ModelContext?
+    private(set) var modelContext: ModelContext?
 
     func configure(with context: ModelContext) {
         self.modelContext = context
@@ -109,11 +109,23 @@ final class TimeEntryEngine {
         save()
     }
 
-    func updateEntry(_ entry: TimeEntry, category: Category? = nil, startedAt: Date? = nil, endedAt: Date? = nil, note: String? = nil) {
+    /// Update a time entry. Pass `updateNote: true` with `note: nil` to explicitly clear the note.
+    func updateEntry(
+        _ entry: TimeEntry,
+        category: Category? = nil,
+        startedAt: Date? = nil,
+        endedAt: Date? = nil,
+        note: String? = nil,
+        updateNote: Bool = false
+    ) {
         if let category { entry.category = category }
         if let startedAt { entry.startedAt = startedAt }
         if let endedAt { entry.endedAt = endedAt }
-        if let note { entry.note = note }
+        if let note {
+            entry.note = note.isEmpty ? nil : note
+        } else if updateNote {
+            entry.note = nil
+        }
         entry.updatedAt = Date()
         save()
     }

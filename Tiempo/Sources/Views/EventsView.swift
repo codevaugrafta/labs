@@ -3,6 +3,7 @@ import SwiftData
 
 struct EventsView: View {
     @Environment(TimeEntryEngine.self) private var engine
+
     @Query(
         filter: #Predicate<TimeEntry> { !$0.isRunning && $0.deletedAt == nil },
         sort: \TimeEntry.startedAt,
@@ -10,8 +11,9 @@ struct EventsView: View {
     )
     private var entries: [TimeEntry]
 
-    @State private var showingAddEntry = false
-    @State private var editingEntry: TimeEntry?
+    @State private var showingAddRetroactive = false
+    @State private var entryToEdit: TimeEntry?
+    @State private var entryToDelete: TimeEntry?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -22,12 +24,13 @@ struct EventsView: View {
                 Text("\(entries.count) entries")
                     .foregroundStyle(.secondary)
                 Button {
-                    showingAddEntry = true
+                    showingAddRetroactive = true
                 } label: {
                     Image(systemName: "plus.circle.fill")
                         .font(.title2)
                 }
                 .buttonStyle(.plain)
+                .help("Add retroactive entry")
             }
             .padding()
 
@@ -41,29 +44,76 @@ struct EventsView: View {
                     Text("Start tracking to see your time entries here")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
+                    Button("Add Entry") {
+                        showingAddRetroactive = true
+                    }
+                    .buttonStyle(.bordered)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List(entries) { entry in
-                    EventRow(entry: entry)
-                        .contextMenu {
-                            Button("Edit") {
-                                editingEntry = entry
+                List {
+                    ForEach(entries) { entry in
+                        EventRow(entry: entry)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                entryToEdit = entry
                             }
-                            Divider()
-                            Button("Delete", role: .destructive) {
-                                engine.softDeleteEntry(entry)
+                            .contextMenu {
+                                Button {
+                                    entryToEdit = entry
+                                } label: {
+                                    Label("Edit", systemImage: "pencil")
+                                }
+                                Divider()
+                                Button(role: .destructive) {
+                                    entryToDelete = entry
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
                             }
-                        }
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) {
+                                    entryToDelete = entry
+                                } label: {
+                                    Label("Delete", systemImage: "trash")
+                                }
+                                Button {
+                                    entryToEdit = entry
+                                } label: {
+                                    Label("Edit", systemImage: "pencil")
+                                }
+                                .tint(.blue)
+                            }
+                    }
                 }
                 .listStyle(.inset)
             }
         }
-        .sheet(isPresented: $showingAddEntry) {
-            AddEntrySheet()
+        .sheet(isPresented: $showingAddRetroactive) {
+            EntryFormSheet(mode: .add)
         }
-        .sheet(item: $editingEntry) { entry in
-            EditEntrySheet(entry: entry)
+        .sheet(item: $entryToEdit) { entry in
+            EntryFormSheet(mode: .edit(entry))
+        }
+        .confirmationDialog(
+            "Delete this entry?",
+            isPresented: Binding(
+                get: { entryToDelete != nil },
+                set: { if !$0 { entryToDelete = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                if let entry = entryToDelete {
+                    engine.softDeleteEntry(entry)
+                }
+                entryToDelete = nil
+            }
+            Button("Cancel", role: .cancel) {
+                entryToDelete = nil
+            }
+        } message: {
+            Text("This action cannot be undone.")
         }
     }
 }
@@ -84,15 +134,21 @@ struct EventRow: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
+                    // Category emoji icon if present
+                    if let icon = entry.category?.icon, !icon.isEmpty {
+                        Text(icon)
+                            .font(.caption)
+                    }
                     Text(entry.category?.name ?? "Unknown")
                         .font(.body.bold())
-                    if let note = entry.note, !note.isEmpty {
-                        Text("— \(note)")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
+                    // Subcategory visual indicator
+                    if entry.category?.parentId != nil {
+                        Image(systemName: "arrow.turn.down.right")
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
                     }
                 }
+
                 HStack(spacing: 8) {
                     Text(entry.startedAt.formatted(date: .abbreviated, time: .shortened))
                     if let end = entry.endedAt {
@@ -104,14 +160,25 @@ struct EventRow: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
 
-                if !entry.tags.isEmpty {
+                if let note = entry.note, !note.isEmpty {
+                    Text(note)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                }
+
+                // Tag pills (only non-deleted tags)
+                let visibleTags = entry.tags.filter { $0.deletedAt == nil }
+                if !visibleTags.isEmpty {
                     HStack(spacing: 4) {
-                        ForEach(entry.tags) { tag in
+                        ForEach(visibleTags) { tag in
                             Text(tag.name)
-                                .font(.caption2)
+                                .font(.system(size: 10, weight: .medium))
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
-                                .background(Capsule().fill(.secondary.opacity(0.15)))
+                                .background(Color.accentColor.opacity(0.15))
+                                .foregroundStyle(Color.accentColor)
+                                .clipShape(Capsule())
                         }
                     }
                 }
@@ -124,63 +191,5 @@ struct EventRow: View {
                 .foregroundStyle(.secondary)
         }
         .padding(.vertical, 4)
-    }
-}
-
-// MARK: - Edit Entry Sheet
-
-struct EditEntrySheet: View {
-    @Environment(TimeEntryEngine.self) private var engine
-    @Environment(\.dismiss) private var dismiss
-
-    let entry: TimeEntry
-    @State private var startDate: Date
-    @State private var endDate: Date
-    @State private var note: String
-
-    init(entry: TimeEntry) {
-        self.entry = entry
-        self._startDate = State(initialValue: entry.startedAt)
-        self._endDate = State(initialValue: entry.endedAt ?? Date())
-        self._note = State(initialValue: entry.note ?? "")
-    }
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Text("Edit Entry")
-                .font(.title2.bold())
-
-            HStack {
-                Circle()
-                    .fill(Color(hex: entry.category?.color ?? "#888") ?? .gray)
-                    .frame(width: 10, height: 10)
-                Text(entry.category?.name ?? "Unknown")
-                    .font(.headline)
-            }
-
-            DatePicker("Start", selection: $startDate)
-            DatePicker("End", selection: $endDate, in: startDate...)
-
-            TextField("Note (optional)", text: $note, axis: .vertical)
-                .lineLimit(2...4)
-                .textFieldStyle(.roundedBorder)
-
-            HStack(spacing: 12) {
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-                Button("Save") {
-                    engine.updateEntry(
-                        entry,
-                        startedAt: startDate,
-                        endedAt: endDate,
-                        note: note.isEmpty ? nil : note
-                    )
-                    dismiss()
-                }
-                .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(24)
-        .frame(width: 360)
     }
 }

@@ -108,7 +108,7 @@ struct Phase3UITests {
         #expect(tag != nil)
         #expect(tag?.name == "sprint")
 
-        let all = try context.fetch(FetchDescriptor<Tag>())
+        let all = try context.fetch(FetchDescriptor<Tiempo.Tag>())
         #expect(all.count == 1)
     }
 
@@ -244,8 +244,8 @@ struct Phase3UITests {
 
         engine.archiveCategory(category)
 
-        let descriptor = FetchDescriptor<Category>(
-            predicate: #Predicate { !$0.isArchived && $0.deletedAt == nil }
+        let descriptor = FetchDescriptor<Tiempo.Category>(
+            predicate: #Predicate<Tiempo.Category> { !$0.isArchived && $0.deletedAt == nil }
         )
         let visible = try context.fetch(descriptor)
         #expect(visible.isEmpty)
@@ -262,8 +262,8 @@ struct Phase3UITests {
         // Do NOT archive
         _ = engine
 
-        let descriptor = FetchDescriptor<Category>(
-            predicate: #Predicate { !$0.isArchived && $0.deletedAt == nil }
+        let descriptor = FetchDescriptor<Tiempo.Category>(
+            predicate: #Predicate<Tiempo.Category> { !$0.isArchived && $0.deletedAt == nil }
         )
         let visible = try context.fetch(descriptor)
         #expect(visible.count == 1)
