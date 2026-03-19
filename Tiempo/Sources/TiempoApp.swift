@@ -15,6 +15,39 @@ struct TiempoApp: App {
             Category.self, TimeEntry.self, Tag.self,
             ScheduleTemplate.self, ScheduledBlock.self, Goal.self
         ])
+        .commands {
+            // Tiempo menu commands — work when app is focused
+            CommandGroup(after: .toolbar) {
+                Section {
+                    Button("Toggle Timer") {
+                        if engine.activeEntry != nil {
+                            TiempoFeedback.onTimerStop()
+                        }
+                        engine.toggleCurrentTimer()
+                    }
+                    .keyboardShortcut("t", modifiers: [.command, .shift])
+
+                    Button("Show Floating Timer") {
+                        if appDelegate.floatingPanel.isVisible {
+                            appDelegate.floatingPanel.hide()
+                        } else {
+                            appDelegate.floatingPanel.show()
+                        }
+                    }
+                    .keyboardShortcut("f", modifiers: [.command, .shift])
+
+                    Button("Set Countdown") {
+                        appDelegate.floatingPanel.showWithCountdownPicker()
+                    }
+                    .keyboardShortcut("c", modifiers: [.command, .shift])
+
+                    Button("Cycle Theme") {
+                        ThemeManager.shared.cycleTheme()
+                    }
+                    .keyboardShortcut("k", modifiers: [.command, .shift])
+                }
+            }
+        }
 
         Settings {
             SettingsTab(engine: engine)
@@ -49,16 +82,13 @@ struct AppBootstrapView: View {
 class TiempoAppDelegate: NSObject, NSApplicationDelegate {
     let menuBarManager = MenuBarManager()
     let floatingPanel = FloatingTimerPanel()
-    private var globalMonitor: Any?
-    private var localMonitor: Any?
     private weak var engine: TimeEntryEngine?
 
     func wireUp(engine: TimeEntryEngine) {
-        guard self.engine == nil else { return } // Only once
+        guard self.engine == nil else { return }
         self.engine = engine
         menuBarManager.setup(engine: engine, floatingPanel: floatingPanel)
         floatingPanel.setup(engine: engine)
-        registerGlobalHotkey()
 
         // Auto-show floating timer when a timer starts
         NotificationCenter.default.addObserver(forName: .autoShowFloatingTimer, object: nil, queue: .main) { [weak self] _ in
@@ -76,78 +106,7 @@ class TiempoAppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    func applicationWillTerminate(_ notification: Notification) {
-        if let m = globalMonitor { NSEvent.removeMonitor(m) }
-        if let m = localMonitor { NSEvent.removeMonitor(m) }
-    }
-
-    private func registerGlobalHotkey() {
-        // Only prompt for Accessibility permission if not already granted.
-        if !AXIsProcessTrusted() {
-            let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-            _ = AXIsProcessTrustedWithOptions(options)
-            print("Tiempo: Grant Accessibility permission in System Settings → Privacy & Security → Accessibility for global hotkeys.")
-        }
-
-        globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-
-            // Ctrl+Shift+T — Toggle active timer
-            if mods == [.control, .shift] && event.keyCode == 17 { // 't'
-                Task { @MainActor in
-                    if self?.engine?.activeEntry != nil {
-                        TiempoFeedback.onTimerStop()
-                    }
-                    self?.engine?.toggleCurrentTimer()
-                }
-            }
-
-            // Ctrl+Shift+F — Toggle floating timer panel
-            if mods == [.control, .shift] && event.keyCode == 3 { // 'f'
-                Task { @MainActor in
-                    if self?.floatingPanel.isVisible ?? false {
-                        self?.floatingPanel.hide()
-                    } else {
-                        self?.floatingPanel.show()
-                    }
-                }
-            }
-
-            // Ctrl+Shift+C — Open countdown picker
-            if mods == [.control, .shift] && event.keyCode == 8 { // 'c'
-                Task { @MainActor in
-                    self?.floatingPanel.showWithCountdownPicker()
-                }
-            }
-        }
-
-        // Local monitor — works when Tiempo is the active app (no Accessibility needed)
-        localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-
-            if mods == [.control, .shift] && event.keyCode == 17 {
-                Task { @MainActor in
-                    if self?.engine?.activeEntry != nil { TiempoFeedback.onTimerStop() }
-                    self?.engine?.toggleCurrentTimer()
-                }
-                return nil // Consume the event
-            }
-            if mods == [.control, .shift] && event.keyCode == 3 {
-                Task { @MainActor in
-                    if self?.floatingPanel.isVisible ?? false { self?.floatingPanel.hide() }
-                    else { self?.floatingPanel.show() }
-                }
-                return nil
-            }
-            if mods == [.control, .shift] && event.keyCode == 8 {
-                Task { @MainActor in
-                    self?.floatingPanel.showWithCountdownPicker()
-                }
-                return nil
-            }
-            return event // Pass through other events
-        }
-    }
+    func applicationWillTerminate(_ notification: Notification) {}
 }
 
 // MARK: - Settings Tab
