@@ -73,6 +73,9 @@ final class TimeEntryEngine {
         modelContext.insert(entry)
         activeEntry = entry
         save()
+
+        // Auto-show floating timer when a timer starts
+        NotificationCenter.default.post(name: .autoShowFloatingTimer, object: nil)
     }
 
     func stopTimer(_ entry: TimeEntry? = nil) {

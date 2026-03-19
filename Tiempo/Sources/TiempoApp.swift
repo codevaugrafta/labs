@@ -58,6 +58,15 @@ class TiempoAppDelegate: NSObject, NSApplicationDelegate {
         menuBarManager.setup(engine: engine, floatingPanel: floatingPanel)
         floatingPanel.setup(engine: engine)
         registerGlobalHotkey()
+
+        // Auto-show floating timer when a timer starts
+        NotificationCenter.default.addObserver(forName: .autoShowFloatingTimer, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor in
+                if !(self?.floatingPanel.isVisible ?? true) {
+                    self?.floatingPanel.show()
+                }
+            }
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -73,15 +82,34 @@ class TiempoAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func registerGlobalHotkey() {
-        // Default: Ctrl+Shift+T to toggle timer
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            // Ctrl+Shift+T
-            if event.modifierFlags.contains([.control, .shift]) && event.keyCode == 17 { // 17 = 't'
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+
+            // Ctrl+Shift+T — Toggle active timer
+            if mods == [.control, .shift] && event.keyCode == 17 { // 't'
                 Task { @MainActor in
                     if self?.engine?.activeEntry != nil {
                         TiempoFeedback.onTimerStop()
                     }
                     self?.engine?.toggleCurrentTimer()
+                }
+            }
+
+            // Ctrl+Shift+F — Toggle floating timer panel
+            if mods == [.control, .shift] && event.keyCode == 3 { // 'f'
+                Task { @MainActor in
+                    if self?.floatingPanel.isVisible ?? false {
+                        self?.floatingPanel.hide()
+                    } else {
+                        self?.floatingPanel.show()
+                    }
+                }
+            }
+
+            // Ctrl+Shift+C — Open countdown picker
+            if mods == [.control, .shift] && event.keyCode == 8 { // 'c'
+                Task { @MainActor in
+                    self?.floatingPanel.showWithCountdownPicker()
                 }
             }
         }

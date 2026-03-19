@@ -32,7 +32,11 @@ final class MenuBarManager {
         let currentEntryId = engine?.activeEntry?.id
 
         if let active = engine?.activeEntry, let cat = active.category {
-            button?.title = " \(active.formattedDuration)"
+            let duration = active.formattedDuration
+            button?.title = " \(duration)"
+
+            // Dock badge with elapsed time
+            NSApp.dockTile.badgeLabel = duration
             let image = NSImage(size: NSSize(width: 12, height: 12), flipped: false) { rect in
                 if let color = NSColor(hex: cat.color) {
                     color.setFill()
@@ -49,6 +53,7 @@ final class MenuBarManager {
             image?.isTemplate = true
             button?.image = image
             button?.imagePosition = .imageOnly
+            NSApp.dockTile.badgeLabel = nil // Clear badge when no timer
         }
 
         // Rebuild menu when active entry changes OR every 5 seconds for fresh data
@@ -251,10 +256,7 @@ final class MenuBarManager {
     }
 
     @objc private func openCountdownPicker() {
-        // Show floating panel with countdown picker
-        if !(floatingPanel?.isVisible ?? false) {
-            floatingPanel?.show()
-        }
+        floatingPanel?.showWithCountdownPicker()
         buildMenu()
     }
 
