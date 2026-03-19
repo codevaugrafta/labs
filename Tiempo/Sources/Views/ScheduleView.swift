@@ -90,22 +90,16 @@ struct ScheduleView: View {
                     dayOfWeek: selectedDay
                 )
             case .compare:
-                VStack(spacing: 12) {
-                    Image(systemName: "chart.bar.doc.horizontal")
-                        .font(.system(size: 48))
-                        .foregroundStyle(.secondary)
-                    Text("Plan vs. Actual comparison")
-                        .foregroundStyle(.secondary)
-                    Text("Coming in Phase 6")
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                CompareView(date: selectedDate)
             }
         }
         .onAppear {
             scheduleEngine.configure(with: modelContext)
         }
+    }
+
+    private var selectedDate: Date {
+        Calendar.current.date(byAdding: .day, value: selectedDay, to: selectedWeekStart) ?? selectedWeekStart
     }
 
     private var weekLabel: String {
