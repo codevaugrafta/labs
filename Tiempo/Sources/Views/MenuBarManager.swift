@@ -103,17 +103,9 @@ final class MenuBarManager {
             menu.addItem(stopCdItem)
             menu.addItem(.separator())
         } else {
-            // Quick countdown presets
-            let cdSubmenu = NSMenu()
-            for (label, mins) in [("25 min (Pomodoro)", 25), ("45 min", 45), ("1 hour", 60), ("2 hours", 120), ("3 hours", 180)] {
-                let item = NSMenuItem(title: label, action: #selector(startCountdownPreset(_:)), keyEquivalent: "")
-                item.target = self
-                item.tag = mins
-                cdSubmenu.addItem(item)
-            }
-            let cdMenuItem = NSMenuItem(title: "Start Countdown", action: nil, keyEquivalent: "")
-            cdMenuItem.submenu = cdSubmenu
-            menu.addItem(cdMenuItem)
+            let setCountdownItem = NSMenuItem(title: "Set Countdown...", action: #selector(openCountdownPicker), keyEquivalent: "")
+            setCountdownItem.target = self
+            menu.addItem(setCountdownItem)
             menu.addItem(.separator())
         }
 
@@ -258,10 +250,8 @@ final class MenuBarManager {
         updateStatusItem()
     }
 
-    @objc private func startCountdownPreset(_ sender: NSMenuItem) {
-        let minutes = sender.tag
-        CountdownTimer.shared.start(minutes: minutes)
-        // Auto-show floating panel when countdown starts
+    @objc private func openCountdownPicker() {
+        // Show floating panel with countdown picker
         if !(floatingPanel?.isVisible ?? false) {
             floatingPanel?.show()
         }
