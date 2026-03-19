@@ -96,6 +96,14 @@ final class TimeEntryEngine {
         }
     }
 
+    /// Toggle the currently active timer (stop if running, no-op if nothing running).
+    /// Used by global hotkey.
+    func toggleCurrentTimer() {
+        if let active = activeEntry {
+            stopTimer(active)
+        }
+    }
+
     func isActive(category: Category) -> Bool {
         activeEntry?.category?.id == category.id
     }

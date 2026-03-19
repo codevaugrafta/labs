@@ -9,7 +9,7 @@ struct ContentView: View {
                     Label("Tracking", systemImage: "timer")
                 }
 
-            PlaceholderTab(title: "Schedule", icon: "calendar")
+            ScheduleView()
                 .tabItem {
                     Label("Schedule", systemImage: "calendar")
                 }
