@@ -77,11 +77,11 @@ struct TimeEntryEngineTests {
         #expect(engine.activeEntry == nil)
     }
 
-    @Test("Starting a new category stops the previous timer")
+    @Test("Starting a new category stops the previous timer", .serialized)
     @MainActor
     func switchCategory() throws {
+        UserDefaults.standard.set(false, forKey: "allowConcurrentTimers")
         let (engine, context) = try makeEngine()
-        engine.allowConcurrentTimers = false  // Ensure single-timer mode
         let work = Category(name: "Work", color: "#4A90D9")
         let exercise = Category(name: "Exercise", color: "#2ECC71")
         context.insert(work)
