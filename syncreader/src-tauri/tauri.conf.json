@@ -34,7 +34,6 @@
     ]
   },
   "plugins": {
-    "dialog": {},
     "fs": {
       "scope": {
         "allow": ["$APPDATA/syncreader/**", "$TEMP/**", "$HOME/**"]
