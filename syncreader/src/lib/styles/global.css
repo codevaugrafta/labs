@@ -44,6 +44,7 @@
   padding: 0;
 }
 
-body {
-  overflow: hidden;
+html, body {
+  height: 100%;
+  overflow: auto;
 }

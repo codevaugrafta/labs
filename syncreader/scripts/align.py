@@ -39,8 +39,23 @@ if TYPE_CHECKING:
 # Dependency bootstrap
 # ---------------------------------------------------------------------------
 
+def _fix_ssl():
+    """Fix SSL certificate verification on macOS."""
+    import ssl
+    import certifi
+    import os
+    os.environ["SSL_CERT_FILE"] = certifi.where()
+    os.environ["REQUESTS_CA_BUNDLE"] = certifi.where()
+
+
 def _require_stable_ts():
     """Import stable_whisper, auto-installing if missing."""
+    # Fix SSL before any network calls
+    try:
+        _fix_ssl()
+    except ImportError:
+        pass  # certifi not installed yet — will install with stable-ts
+
     try:
         import stable_whisper
         return stable_whisper
@@ -48,9 +63,10 @@ def _require_stable_ts():
         print("[align.py] stable-ts not found — installing…", file=sys.stderr)
         import subprocess
         subprocess.check_call(
-            [sys.executable, "-m", "pip", "install", "stable-ts", "-q"],
+            [sys.executable, "-m", "pip", "install", "stable-ts", "certifi", "-q"],
             stdout=sys.stderr,
         )
+        _fix_ssl()
         import stable_whisper
         return stable_whisper
 
