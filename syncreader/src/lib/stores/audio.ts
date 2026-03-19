@@ -44,12 +44,15 @@ class AudioPlayer {
     this.playing = false;
   };
 
-  play(): void {
+  async play(): Promise<void> {
     if (this.audio && this.loaded) {
-      this.audio.play().catch(() => {
+      try {
+        await this.audio.play();
+        this.playing = true;
+      } catch (err) {
         this.playing = false;
-      });
-      this.playing = true;
+        console.error('[AudioPlayer] play() failed:', err);
+      }
     }
   }
 
@@ -60,9 +63,9 @@ class AudioPlayer {
     }
   }
 
-  togglePlay(): void {
+  async togglePlay(): Promise<void> {
     if (this.playing) this.pause();
-    else this.play();
+    else await this.play();
   }
 
   seek(time: number): void {

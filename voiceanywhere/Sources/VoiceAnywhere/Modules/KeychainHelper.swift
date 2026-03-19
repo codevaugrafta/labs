@@ -19,6 +19,8 @@ struct KeychainHelper {
             kSecAttrService: service,
             kSecAttrAccount: account,
             kSecValueData: data,
+            kSecAttrAccessible: kSecAttrAccessibleWhenUnlockedThisDeviceOnly,
+            kSecAttrSynchronizable: kCFBooleanFalse as Any,
         ]
 
         let status = SecItemAdd(addQuery as CFDictionary, nil)
@@ -36,6 +38,7 @@ struct KeychainHelper {
             kSecAttrAccount: account,
             kSecReturnData: true,
             kSecMatchLimit: kSecMatchLimitOne,
+            kSecAttrSynchronizable: kCFBooleanFalse as Any,
         ]
 
         var result: AnyObject?
@@ -63,6 +66,7 @@ struct KeychainHelper {
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
             kSecAttrAccount: account,
+            kSecAttrSynchronizable: kCFBooleanFalse as Any,
         ]
         SecItemDelete(query as CFDictionary)
     }

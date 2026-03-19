@@ -38,9 +38,23 @@ pub async fn select_file(filter: String) -> Result<Option<String>, String> {
 }
 
 /// Read a UTF-8 text file from the given absolute path.
+///
+/// Rejects paths that are not absolute or that contain any `..` component to
+/// prevent directory traversal outside the intended scope.
 #[tauri::command]
 pub async fn read_text_file(path: String) -> Result<String, String> {
-    std::fs::read_to_string(&path).map_err(|e| format!("Failed to read file '{}': {}", path, e))
+    let p = PathBuf::from(&path);
+
+    if !p.is_absolute() {
+        return Err(format!("Path must be absolute, got: '{}'", path));
+    }
+
+    // Reject any path component equal to `..`.
+    if p.components().any(|c| c == std::path::Component::ParentDir) {
+        return Err(format!("Path must not contain '..' components: '{}'", path));
+    }
+
+    std::fs::read_to_string(&p).map_err(|e| format!("Failed to read file '{}': {}", path, e))
 }
 
 /// Convert a filesystem path to an asset:// URL the Tauri webview can load.

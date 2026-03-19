@@ -160,11 +160,12 @@ class GeminiTTS: TTSProvider {
         AsyncThrowingStream { continuation in
             Task {
                 do {
-                    let urlString = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:streamGenerateContent?key=\(apiKey)"
+                    let urlString = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:streamGenerateContent"
                     let url = URL(string: urlString)!
                     var request = URLRequest(url: url)
                     request.httpMethod = "POST"
                     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                    request.setValue(apiKey, forHTTPHeaderField: "x-goog-api-key")
 
                     let resolvedVoice = voice.isEmpty ? "Kore" : voice
                     let body: [String: Any] = [

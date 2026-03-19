@@ -85,7 +85,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
             return
         }
 
-        guard let text = textCapture.captureSelectedText() else {
+        guard let text = await textCapture.captureSelectedText() else {
             showNoTextNotification()
             return
         }
@@ -105,6 +105,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
     }
 
     private func speakText(_ text: String) async {
+        guard !isPlaying else { return }
+
         let language = languageDetector.detect(text)
         let voice = settings.voiceForLanguage(language)
 

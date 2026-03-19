@@ -104,7 +104,7 @@ async fn generate_elevenlabs(
         &el_response.alignment.characters,
         &el_response.alignment.character_start_times_seconds,
         &el_response.alignment.character_end_times_seconds,
-    );
+    )?;
 
     Ok(TTSResult {
         audio_path: audio_path.to_string_lossy().to_string(),
@@ -123,10 +123,7 @@ async fn generate_gemini(
     output_dir: &str,
 ) -> Result<TTSResult, String> {
     let client = reqwest::Client::new();
-    let url = format!(
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key={}",
-        api_key
-    );
+    let url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent";
 
     // Build the request body using serde_json::json! to avoid a large struct tree.
     let request_body = serde_json::json!({
@@ -144,7 +141,8 @@ async fn generate_gemini(
     });
 
     let response = client
-        .post(&url)
+        .post(url)
+        .header("x-goog-api-key", api_key)
         .json(&request_body)
         .send()
         .await
@@ -246,17 +244,21 @@ fn chars_to_word_timestamps(
     characters: &[String],
     starts: &[f64],
     ends: &[f64],
-) -> Vec<WordTimestamp> {
-    assert_eq!(
-        characters.len(),
-        starts.len(),
-        "characters and start arrays must have equal length"
-    );
-    assert_eq!(
-        characters.len(),
-        ends.len(),
-        "characters and end arrays must have equal length"
-    );
+) -> Result<Vec<WordTimestamp>, String> {
+    if characters.len() != starts.len() {
+        return Err(format!(
+            "ElevenLabs alignment mismatch: characters length ({}) != start_times length ({})",
+            characters.len(),
+            starts.len()
+        ));
+    }
+    if characters.len() != ends.len() {
+        return Err(format!(
+            "ElevenLabs alignment mismatch: characters length ({}) != end_times length ({})",
+            characters.len(),
+            ends.len()
+        ));
+    }
 
     let mut timestamps: Vec<WordTimestamp> = Vec::new();
     let mut current_word = String::new();
@@ -325,7 +327,7 @@ fn chars_to_word_timestamps(
         &mut timestamps,
     );
 
-    timestamps
+    Ok(timestamps)
 }
 
 /// Minimal, dependency-free Base64 decoder.

@@ -1,14 +1,15 @@
 import ApplicationServices
 import AppKit
 
+@MainActor
 class TextCapture {
     /// Capture selected text from the frontmost application.
     /// Uses chain of responsibility: AXUIElement -> clipboard fallback.
-    func captureSelectedText() -> String? {
+    func captureSelectedText() async -> String? {
         if let text = captureViaAccessibility() {
             return text.isEmpty ? nil : text
         }
-        return captureViaClipboard()
+        return await captureViaClipboard()
     }
 
     private func captureViaAccessibility() -> String? {
@@ -42,7 +43,7 @@ class TextCapture {
         return text
     }
 
-    private func captureViaClipboard() -> String? {
+    private func captureViaClipboard() async -> String? {
         let pasteboard = NSPasteboard.general
 
         // Snapshot the current clipboard so we can restore it afterwards.
@@ -62,7 +63,7 @@ class TextCapture {
         keyUp?.post(tap: .cghidEventTap)
 
         // Give the target app a moment to update the clipboard.
-        Thread.sleep(forTimeInterval: 0.1)
+        try? await Task.sleep(for: .milliseconds(100))
 
         let text = pasteboard.string(forType: .string)
 
