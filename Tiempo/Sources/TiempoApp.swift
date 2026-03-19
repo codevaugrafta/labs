@@ -82,10 +82,10 @@ class TiempoAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func registerGlobalHotkey() {
-        // Request Accessibility permission — required for global key monitoring.
-        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
-        let trusted = AXIsProcessTrustedWithOptions(options)
-        if !trusted {
+        // Only prompt for Accessibility permission if not already granted.
+        if !AXIsProcessTrusted() {
+            let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+            _ = AXIsProcessTrustedWithOptions(options)
             print("Tiempo: Grant Accessibility permission in System Settings → Privacy & Security → Accessibility for global hotkeys.")
         }
 
