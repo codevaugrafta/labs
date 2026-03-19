@@ -50,6 +50,7 @@ class TiempoAppDelegate: NSObject, NSApplicationDelegate {
     let menuBarManager = MenuBarManager()
     let floatingPanel = FloatingTimerPanel()
     private var globalMonitor: Any?
+    private var localMonitor: Any?
     private weak var engine: TimeEntryEngine?
 
     func wireUp(engine: TimeEntryEngine) {
@@ -76,12 +77,18 @@ class TiempoAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        if let monitor = globalMonitor {
-            NSEvent.removeMonitor(monitor)
-        }
+        if let m = globalMonitor { NSEvent.removeMonitor(m) }
+        if let m = localMonitor { NSEvent.removeMonitor(m) }
     }
 
     private func registerGlobalHotkey() {
+        // Request Accessibility permission — required for global key monitoring.
+        let options = ["AXTrustedCheckOptionPrompt": true] as CFDictionary
+        let trusted = AXIsProcessTrustedWithOptions(options)
+        if !trusted {
+            print("Tiempo: Grant Accessibility permission in System Settings → Privacy & Security → Accessibility for global hotkeys.")
+        }
+
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .keyDown) { [weak self] event in
             let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
 
@@ -112,6 +119,33 @@ class TiempoAppDelegate: NSObject, NSApplicationDelegate {
                     self?.floatingPanel.showWithCountdownPicker()
                 }
             }
+        }
+
+        // Local monitor — works when Tiempo is the active app (no Accessibility needed)
+        localMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+
+            if mods == [.control, .shift] && event.keyCode == 17 {
+                Task { @MainActor in
+                    if self?.engine?.activeEntry != nil { TiempoFeedback.onTimerStop() }
+                    self?.engine?.toggleCurrentTimer()
+                }
+                return nil // Consume the event
+            }
+            if mods == [.control, .shift] && event.keyCode == 3 {
+                Task { @MainActor in
+                    if self?.floatingPanel.isVisible ?? false { self?.floatingPanel.hide() }
+                    else { self?.floatingPanel.show() }
+                }
+                return nil
+            }
+            if mods == [.control, .shift] && event.keyCode == 8 {
+                Task { @MainActor in
+                    self?.floatingPanel.showWithCountdownPicker()
+                }
+                return nil
+            }
+            return event // Pass through other events
         }
     }
 }
