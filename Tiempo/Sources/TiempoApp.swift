@@ -44,7 +44,9 @@ class TiempoAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Menu bar is set up when engine is wired
+        // Make the app a proper foreground application so text fields receive keyboard focus
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
