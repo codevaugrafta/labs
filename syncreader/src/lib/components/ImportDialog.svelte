@@ -1,5 +1,7 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
+  import { open } from '@tauri-apps/plugin-dialog';
+  import { readTextFile } from '@tauri-apps/plugin-fs';
 
   let {
     onImport,
@@ -21,11 +23,15 @@
   async function selectTextFile() {
     error = null;
     try {
-      const path = await invoke<string | null>('select_file', { filter: 'text' });
-      if (path) {
+      const selected = await open({
+        multiple: false,
+        filters: [{ name: 'Text', extensions: ['txt', 'md', 'srt', 'vtt'] }],
+      });
+      if (selected) {
+        const path = typeof selected === 'string' ? selected : selected;
         textFile = path;
         loadingText = true;
-        const content = await invoke<string>('read_text_file', { path });
+        const content = await readTextFile(path);
         textInput = content;
       }
     } catch (e) {
@@ -38,8 +44,13 @@
   async function selectAudioFile() {
     error = null;
     try {
-      const path = await invoke<string | null>('select_file', { filter: 'audio' });
-      if (path) audioFile = path;
+      const selected = await open({
+        multiple: false,
+        filters: [{ name: 'Audio', extensions: ['mp3', 'wav', 'm4a', 'ogg', 'flac'] }],
+      });
+      if (selected) {
+        audioFile = typeof selected === 'string' ? selected : selected;
+      }
     } catch (e) {
       error = `Could not open audio file: ${e}`;
     }
