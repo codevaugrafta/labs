@@ -18,10 +18,10 @@ final class FloatingTimerPanel {
         }
 
         let hostingView = NSHostingView(rootView: content)
-        hostingView.frame = NSRect(x: 0, y: 0, width: 240, height: 60)
+        let panelHeight: CGFloat = 100
 
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 240, height: 60),
+            contentRect: NSRect(x: 0, y: 0, width: 280, height: panelHeight),
             styleMask: [.titled, .closable, .nonactivatingPanel, .hudWindow],
             backing: .buffered,
             defer: false
@@ -35,12 +35,11 @@ final class FloatingTimerPanel {
         panel.titleVisibility = .hidden
         panel.hasShadow = true
 
-        // Position in top-right corner
         if let screen = NSScreen.main {
             let screenFrame = screen.visibleFrame
             panel.setFrameOrigin(NSPoint(
-                x: screenFrame.maxX - 260,
-                y: screenFrame.maxY - 80
+                x: screenFrame.maxX - 300,
+                y: screenFrame.maxY - panelHeight - 20
             ))
         }
 
@@ -56,59 +55,116 @@ final class FloatingTimerPanel {
     var isVisible: Bool { panel != nil }
 }
 
+// MARK: - Floating Timer View
+
 struct FloatingTimerView: View {
     let engine: TimeEntryEngine
     let onClose: () -> Void
+    private let countdown = CountdownTimer.shared
 
     @State private var tick = Date()
 
     var body: some View {
-        Group {
+        VStack(spacing: 6) {
+            // Tiempo category timer
             if let entry = engine.activeEntry, let cat = entry.category {
-                HStack(spacing: 10) {
+                HStack(spacing: 8) {
                     Circle()
                         .fill(Color(hex: cat.color) ?? .blue)
-                        .frame(width: 10, height: 10)
+                        .frame(width: 8, height: 8)
+                        .timerPulse(isActive: true)
 
-                    VStack(alignment: .leading, spacing: 1) {
+                    VStack(alignment: .leading, spacing: 0) {
                         Text(durationText(for: entry))
                             .font(.system(.title3, design: .monospaced).bold())
                             .contentTransition(.numericText())
                         Text(cat.name)
-                            .font(.caption)
+                            .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
 
                     Spacer()
 
                     Button {
+                        TiempoFeedback.onTimerStop()
                         engine.stopTimer()
                     } label: {
                         Image(systemName: "stop.circle.fill")
-                            .font(.title2)
+                            .font(.title3)
                             .foregroundStyle(.red)
                     }
                     .buttonStyle(.plain)
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
             } else {
                 HStack {
                     Image(systemName: "timer")
                         .foregroundStyle(.secondary)
+                        .font(.caption)
                     Text("No active timer")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     Spacer()
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+            }
+
+            // Countdown timer (if active)
+            if countdown.isActive {
+                Divider()
+                HStack(spacing: 8) {
+                    Image(systemName: "hourglass")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(countdownText)
+                            .font(.system(.callout, design: .monospaced).bold())
+                            .foregroundStyle(countdown.remainingSeconds <= 60 ? .red : .primary)
+                            .contentTransition(.numericText())
+                        Text(countdown.targetLabel)
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    if countdown.isRunning {
+                        Button {
+                            countdown.pause()
+                        } label: {
+                            Image(systemName: "pause.circle.fill")
+                                .font(.callout)
+                                .foregroundStyle(.orange)
+                        }
+                        .buttonStyle(.plain)
+                    } else {
+                        Button {
+                            countdown.resume()
+                        } label: {
+                            Image(systemName: "play.circle.fill")
+                                .font(.callout)
+                                .foregroundStyle(.green)
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    Button {
+                        countdown.stop()
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.callout)
+                            .foregroundStyle(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
         .task {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(1))
                 tick = Date()
+                countdown.tick()
             }
         }
     }
@@ -116,5 +172,10 @@ struct FloatingTimerView: View {
     private func durationText(for entry: TimeEntry) -> String {
         _ = tick
         return entry.formattedDuration
+    }
+
+    private var countdownText: String {
+        _ = tick
+        return countdown.formattedRemaining
     }
 }

@@ -10,12 +10,14 @@ final class MenuBarManager {
     private weak var engine: TimeEntryEngine?
     private weak var floatingPanel: FloatingTimerPanel?
     private var lastActiveEntryId: UUID?
+    private var lastMenuBuildTime: Date = .distantPast
 
     func setup(engine: TimeEntryEngine, floatingPanel: FloatingTimerPanel? = nil) {
         self.engine = engine
         self.floatingPanel = floatingPanel
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         updateStatusItem()
+        buildMenu() // Build menu immediately so dropdown works on first click
 
         timer = Timer.publish(every: 1, on: .main, in: .common)
             .autoconnect()
@@ -49,9 +51,11 @@ final class MenuBarManager {
             button?.imagePosition = .imageOnly
         }
 
-        // Rebuild menu when active entry changes
-        if currentEntryId != lastActiveEntryId {
+        // Rebuild menu when active entry changes OR every 5 seconds for fresh data
+        let now = Date()
+        if currentEntryId != lastActiveEntryId || now.timeIntervalSince(lastMenuBuildTime) > 5 {
             lastActiveEntryId = currentEntryId
+            lastMenuBuildTime = now
             buildMenu()
         }
     }
@@ -74,6 +78,42 @@ final class MenuBarManager {
             stopItem.keyEquivalentModifierMask = [.command]
             menu.addItem(stopItem)
 
+            menu.addItem(.separator())
+        }
+
+        // ── Countdown Timer Section ──
+        let cd = CountdownTimer.shared
+        if cd.isActive {
+            let cdLabel = cd.isRunning ? "⏳ Countdown: \(cd.formattedRemaining)" : "⏸ Paused: \(cd.formattedRemaining)"
+            let cdItem = NSMenuItem(title: cdLabel, action: nil, keyEquivalent: "")
+            cdItem.isEnabled = false
+            menu.addItem(cdItem)
+
+            if cd.isRunning {
+                let pauseItem = NSMenuItem(title: "Pause Countdown", action: #selector(pauseCountdown), keyEquivalent: "")
+                pauseItem.target = self
+                menu.addItem(pauseItem)
+            } else {
+                let resumeItem = NSMenuItem(title: "Resume Countdown", action: #selector(resumeCountdown), keyEquivalent: "")
+                resumeItem.target = self
+                menu.addItem(resumeItem)
+            }
+            let stopCdItem = NSMenuItem(title: "Cancel Countdown", action: #selector(stopCountdown), keyEquivalent: "")
+            stopCdItem.target = self
+            menu.addItem(stopCdItem)
+            menu.addItem(.separator())
+        } else {
+            // Quick countdown presets
+            let cdSubmenu = NSMenu()
+            for (label, mins) in [("25 min (Pomodoro)", 25), ("45 min", 45), ("1 hour", 60), ("2 hours", 120), ("3 hours", 180)] {
+                let item = NSMenuItem(title: label, action: #selector(startCountdownPreset(_:)), keyEquivalent: "")
+                item.target = self
+                item.tag = mins
+                cdSubmenu.addItem(item)
+            }
+            let cdMenuItem = NSMenuItem(title: "Start Countdown", action: nil, keyEquivalent: "")
+            cdMenuItem.submenu = cdSubmenu
+            menu.addItem(cdMenuItem)
             menu.addItem(.separator())
         }
 
@@ -216,6 +256,31 @@ final class MenuBarManager {
         }
         buildMenu()
         updateStatusItem()
+    }
+
+    @objc private func startCountdownPreset(_ sender: NSMenuItem) {
+        let minutes = sender.tag
+        CountdownTimer.shared.start(minutes: minutes)
+        // Auto-show floating panel when countdown starts
+        if !(floatingPanel?.isVisible ?? false) {
+            floatingPanel?.show()
+        }
+        buildMenu()
+    }
+
+    @objc private func pauseCountdown() {
+        CountdownTimer.shared.pause()
+        buildMenu()
+    }
+
+    @objc private func resumeCountdown() {
+        CountdownTimer.shared.resume()
+        buildMenu()
+    }
+
+    @objc private func stopCountdown() {
+        CountdownTimer.shared.stop()
+        buildMenu()
     }
 
     @objc private func toggleFloatingPanel() {
