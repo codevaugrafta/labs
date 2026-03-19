@@ -73,6 +73,7 @@ struct FloatingTimerView: View {
                     VStack(alignment: .leading, spacing: 1) {
                         Text(durationText(for: entry))
                             .font(.system(.title3, design: .monospaced).bold())
+                            .contentTransition(.numericText())
                         Text(cat.name)
                             .font(.caption)
                             .foregroundStyle(.secondary)

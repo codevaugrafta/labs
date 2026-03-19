@@ -31,6 +31,7 @@ struct ContentView: View {
         }
         .frame(minWidth: 700, minHeight: 500)
         .background(ThemeManager.shared.background)
+        .animation(.easeInOut(duration: 0.4), value: ThemeManager.shared.themeVersion)
     }
 }
 

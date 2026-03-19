@@ -88,7 +88,7 @@ struct TrackingView: View {
                 .background(Color.yellow.opacity(0.1))
             }
 
-            // Active timer banner
+            // Active timer banner (animated slide-in)
             if let active = engine.activeEntry, let cat = active.category {
                 ActiveTimerBanner(
                     entry: active,
@@ -100,6 +100,7 @@ struct TrackingView: View {
                     engine.stopTimer()
                 }
                 .padding(.horizontal)
+                .animation(.spring(response: ThemeManager.shared.springResponse, dampingFraction: ThemeManager.shared.springDamping), value: engine.activeEntry?.id)
             }
 
             if categories.isEmpty {
@@ -200,6 +201,7 @@ struct TrackingView: View {
             }
         }
         .background(ThemeManager.shared.background)
+        .animation(.easeInOut(duration: 0.4), value: ThemeManager.shared.themeVersion)
         .onAppear {
             engine.configure(with: modelContext)
             orderedCategories = categories
@@ -294,13 +296,25 @@ struct CategoryTile: View {
     let onTap: () -> Void
 
     private var isActive: Bool { activeEntry != nil }
+    @State private var isPressed = false
 
     private var parsedColor: Color {
         Color(hex: category.color) ?? .blue
     }
 
     var body: some View {
-        Button(action: onTap) {
+        Button {
+            // Spring bounce
+            withAnimation(.spring(response: ThemeManager.shared.springResponse, dampingFraction: ThemeManager.shared.springDamping)) {
+                isPressed = true
+            }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                withAnimation(.spring(response: ThemeManager.shared.springResponse, dampingFraction: ThemeManager.shared.springDamping)) {
+                    isPressed = false
+                }
+            }
+            onTap()
+        } label: {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     RoundedRectangle(cornerRadius: 3)
@@ -325,6 +339,7 @@ struct CategoryTile: View {
                                 Image(systemName: "star.fill")
                                     .font(.caption2)
                                     .foregroundStyle(.yellow)
+                                    .transition(.scale.combined(with: .opacity))
                             }
                         }
                     }
@@ -343,6 +358,8 @@ struct CategoryTile: View {
             }
         }
         .buttonStyle(.plain)
+        .scaleEffect(isPressed ? 0.95 : 1.0)
+        .animation(.spring(response: ThemeManager.shared.springResponse, dampingFraction: ThemeManager.shared.springDamping), value: isActive)
     }
 
     private func elapsedText(for entry: TimeEntry) -> String {
@@ -368,6 +385,8 @@ struct ActiveTimerBanner: View {
                 .timerPulse(isActive: true)
             Text(durationText)
                 .font(.system(.body, design: .monospaced).bold())
+                .contentTransition(.numericText())
+                .animation(.spring(response: 0.3, dampingFraction: 0.8), value: durationText)
             Text(categoryName)
                 .foregroundStyle(.secondary)
             Spacer()
@@ -380,6 +399,7 @@ struct ActiveTimerBanner: View {
             RoundedRectangle(cornerRadius: ThemeManager.shared.cornerRadius)
                 .fill(ThemeManager.shared.surface)
         }
+        .transition(.move(edge: .top).combined(with: .opacity))
     }
 
     private var durationText: String {
