@@ -3,15 +3,13 @@ import SwiftData
 
 struct TrackingView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(TimeEntryEngine.self) private var engine
     @Query(filter: #Predicate<Category> { $0.deletedAt == nil && !$0.isArchived },
            sort: \Category.sortOrder)
     private var categories: [Category]
 
-    @State private var engine = TimeEntryEngine()
     @State private var showingAddCategory = false
     @State private var timerTick = Date()
-
-    let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -29,6 +27,21 @@ struct TrackingView: View {
             }
             .padding()
 
+            // Error banner
+            if let error = engine.lastError {
+                HStack {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.yellow)
+                    Text(error)
+                        .font(.caption)
+                    Spacer()
+                }
+                .padding(.horizontal)
+                .padding(.vertical, 6)
+                .background(Color.yellow.opacity(0.1))
+            }
+
+            // Active timer banner
             if let active = engine.activeEntry, let cat = active.category {
                 ActiveTimerBanner(entry: active, categoryName: cat.name, color: cat.color, tick: timerTick) {
                     engine.stopTimer()
@@ -56,7 +69,7 @@ struct TrackingView: View {
                         ForEach(categories) { category in
                             CategoryTile(
                                 category: category,
-                                isActive: engine.activeEntry?.category === category,
+                                activeEntry: engine.isActive(category: category) ? engine.activeEntry : nil,
                                 tick: timerTick
                             ) {
                                 engine.toggleTimer(for: category)
@@ -70,20 +83,42 @@ struct TrackingView: View {
         .onAppear {
             engine.configure(with: modelContext)
         }
-        .onReceive(timer) { time in
-            timerTick = time
+        .task {
+            // Stable timer using async — no memory leak
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                timerTick = Date()
+            }
         }
         .sheet(isPresented: $showingAddCategory) {
             AddCategorySheet()
+        }
+        .alert("Timer Recovery", isPresented: Binding(
+            get: { engine.showCrashRecovery },
+            set: { engine.showCrashRecovery = $0 }
+        )) {
+            Button("Keep Running") { engine.keepRecoveredTimer() }
+            Button("Stop Now") {
+                engine.trimRecoveredTimer(to: Date())
+            }
+            Button("Discard", role: .destructive) {
+                engine.discardRecoveredTimer()
+            }
+        } message: {
+            if let entry = engine.recoveredEntry {
+                Text("A timer for \"\(entry.category?.name ?? "Unknown")\" was running since \(entry.startedAt.formatted(date: .abbreviated, time: .shortened)). What would you like to do?")
+            }
         }
     }
 }
 
 struct CategoryTile: View {
     let category: Category
-    let isActive: Bool
+    let activeEntry: TimeEntry?
     let tick: Date
     let onTap: () -> Void
+
+    private var isActive: Bool { activeEntry != nil }
 
     private var parsedColor: Color {
         Color(hex: category.color) ?? .blue
@@ -98,8 +133,9 @@ struct CategoryTile: View {
                         .frame(width: 4, height: 32)
 
                     VStack(alignment: .leading, spacing: 2) {
-                        if isActive {
-                            Text(elapsedText)
+                        if isActive, let entry = activeEntry {
+                            // Use the authoritative activeEntry, not the relationship array
+                            Text(elapsedText(for: entry))
                                 .font(.system(.title3, design: .monospaced).bold())
                                 .foregroundStyle(parsedColor)
                         }
@@ -123,17 +159,9 @@ struct CategoryTile: View {
         .buttonStyle(.plain)
     }
 
-    private var elapsedText: String {
-        // tick forces recomputation every second
-        _ = tick
-        let total = Int(Date().timeIntervalSince(category.timeEntries.first(where: { $0.isRunning })?.startedAt ?? Date()))
-        let hours = total / 3600
-        let minutes = (total % 3600) / 60
-        let seconds = total % 60
-        if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, minutes, seconds)
-        }
-        return String(format: "%d:%02d", minutes, seconds)
+    private func elapsedText(for entry: TimeEntry) -> String {
+        _ = tick // force recomputation
+        return entry.formattedDuration
     }
 }
 
@@ -149,7 +177,7 @@ struct ActiveTimerBanner: View {
             Circle()
                 .fill(Color(hex: color) ?? .blue)
                 .frame(width: 10, height: 10)
-            Text(entry.formattedDuration)
+            Text(durationText)
                 .font(.system(.body, design: .monospaced).bold())
             Text(categoryName)
                 .foregroundStyle(.secondary)
@@ -163,6 +191,11 @@ struct ActiveTimerBanner: View {
             RoundedRectangle(cornerRadius: 8)
                 .fill(Color(.controlBackgroundColor))
         }
+    }
+
+    private var durationText: String {
+        _ = tick // consume tick to force re-render
+        return entry.formattedDuration
     }
 }
 
@@ -209,14 +242,15 @@ struct AddCategorySheet: View {
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Button("Create") {
-                    guard !name.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-                    let category = Category(name: name.trimmingCharacters(in: .whitespaces), color: selectedColor)
+                    let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else { return }
+                    let category = Category(name: trimmed, color: selectedColor)
                     modelContext.insert(category)
                     try? modelContext.save()
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
-                .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                .disabled(name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .padding(24)
