@@ -81,8 +81,8 @@ def align(audio_path: str, text_path: str, output_path: str) -> None:
     if not text:
         raise ValueError("Text file is empty — nothing to align.")
 
-    print(f"[align.py] Loading model 'small'…", file=sys.stderr)
-    model = stable_whisper.load_model("small")
+    print(f"[align.py] Loading model 'large-v3'…", file=sys.stderr)
+    model = stable_whisper.load_model("large-v3")
 
     print(f"[align.py] Running alignment on: {audio_path}", file=sys.stderr)
     # `align` performs forced alignment against the provided text.
