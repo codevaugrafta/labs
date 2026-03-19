@@ -153,15 +153,41 @@ def _parse_args() -> argparse.Namespace:
         description="Align audio with known text, producing word-level timestamps."
     )
     parser.add_argument("--audio", required=True, help="Path to the audio file (mp3/wav/…)")
-    parser.add_argument("--text", required=True, help="Path to the plain-text transcript file")
-    parser.add_argument("--output", required=True, help="Path to write the output JSON file")
+    parser.add_argument("--text", help="Path to the plain-text transcript file")
+    parser.add_argument("--output", help="Path to write the output JSON file (omit for stdout)")
+    parser.add_argument("--stdin", action="store_true", help="Read text from stdin instead of --text file")
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = _parse_args()
     try:
-        align(args.audio, args.text, args.output)
+        if args.stdin:
+            # Read text from stdin, write JSON to stdout
+            text = sys.stdin.read().strip()
+            if not text:
+                raise ValueError("No text received on stdin.")
+
+            # Write to a temp file for stable-ts (it needs a file path)
+            import tempfile, os
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".txt", delete=False, encoding="utf-8") as f:
+                f.write(text)
+                text_path = f.name
+
+            try:
+                output_path = text_path.replace(".txt", "_output.json")
+                align(args.audio, text_path, output_path)
+                with open(output_path, "r", encoding="utf-8") as f:
+                    sys.stdout.write(f.read())
+            finally:
+                os.unlink(text_path)
+                if os.path.exists(output_path):
+                    os.unlink(output_path)
+        else:
+            if not args.text:
+                print("[align.py] ERROR: --text is required when not using --stdin", file=sys.stderr)
+                sys.exit(1)
+            align(args.audio, args.text, args.output or "/dev/stdout")
     except Exception as exc:
         print(f"[align.py] ERROR: {exc}", file=sys.stderr)
         sys.exit(1)

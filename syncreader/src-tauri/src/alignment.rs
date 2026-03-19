@@ -17,43 +17,40 @@ pub struct AlignmentResult {
 /// The script uses stable-ts to align `text` with `audio_path` and writes a
 /// JSON file whose schema matches `AlignmentResult`.
 pub async fn align(audio_path: &str, text: &str) -> Result<AlignmentResult, String> {
-    let tmp_dir = std::env::temp_dir();
-    let text_path = tmp_dir.join("syncreader_align_text.txt");
-    let output_path = tmp_dir.join("syncreader_align_output.json");
-
-    std::fs::write(&text_path, text)
-        .map_err(|e| format!("Failed to write temp text file: {}", e))?;
-
     let script_path = find_alignment_script()?;
 
-    let output = std::process::Command::new("python3")
+    // Pass text via stdin and get JSON result via stdout — no temp files needed.
+    let mut child = std::process::Command::new("python3")
         .arg(&script_path)
         .arg("--audio")
         .arg(audio_path)
-        .arg("--text")
-        .arg(text_path.to_string_lossy().as_ref())
-        .arg("--output")
-        .arg(output_path.to_string_lossy().as_ref())
-        .output()
+        .arg("--stdin")
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .map_err(|e| format!("Failed to spawn alignment script: {}", e))?;
 
-    // Always clean up temp inputs — ignore removal errors.
-    let _ = std::fs::remove_file(&text_path);
+    // Write text to stdin
+    if let Some(mut stdin) = child.stdin.take() {
+        use std::io::Write;
+        stdin.write_all(text.as_bytes())
+            .map_err(|e| format!("Failed to write text to alignment script: {}", e))?;
+        // stdin is dropped here, closing the pipe
+    }
+
+    let output = child.wait_with_output()
+        .map_err(|e| format!("Failed to wait for alignment script: {}", e))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        // Clean up output file if it was partially written.
-        let _ = std::fs::remove_file(&output_path);
         return Err(format!(
             "Alignment script exited with status {}: {}",
             output.status, stderr
         ));
     }
 
-    let result_json = std::fs::read_to_string(&output_path)
-        .map_err(|e| format!("Failed to read alignment output: {}", e))?;
-
-    let _ = std::fs::remove_file(&output_path);
+    let result_json = String::from_utf8_lossy(&output.stdout);
 
     let result: AlignmentResult = serde_json::from_str(&result_json)
         .map_err(|e| format!("Failed to parse alignment JSON: {}", e))?;
