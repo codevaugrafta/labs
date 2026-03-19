@@ -11,6 +11,7 @@ struct TiempoApp: App {
         WindowGroup {
             ContentView()
                 .environment(engine)
+                .environment(ThemeManager.shared)
                 .onAppear {
                     appDelegate.wireUp(engine: engine)
                 }
@@ -22,6 +23,7 @@ struct TiempoApp: App {
 
         Settings {
             SettingsTab(engine: engine)
+                .environment(ThemeManager.shared)
         }
     }
 }
@@ -61,6 +63,9 @@ class TiempoAppDelegate: NSObject, NSApplicationDelegate {
             // Ctrl+Shift+T
             if event.modifierFlags.contains([.control, .shift]) && event.keyCode == 17 { // 17 = 't'
                 Task { @MainActor in
+                    if self?.engine?.activeEntry != nil {
+                        TiempoFeedback.onTimerStop()
+                    }
                     self?.engine?.toggleCurrentTimer()
                 }
             }

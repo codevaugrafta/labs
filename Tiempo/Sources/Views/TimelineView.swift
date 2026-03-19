@@ -102,7 +102,7 @@ struct TimelineView: View {
                             .font(.caption.bold())
                             .padding(.horizontal, 10)
                             .padding(.vertical, 4)
-                            .background(selectedCategories.isEmpty ? Color.accentColor : Color(.controlBackgroundColor))
+                            .background(selectedCategories.isEmpty ? Color.accentColor : ThemeManager.shared.surface)
                             .foregroundStyle(selectedCategories.isEmpty ? .white : .primary)
                             .clipShape(Capsule())
                     }
@@ -120,7 +120,7 @@ struct TimelineView: View {
                             }
                             .padding(.horizontal, 10)
                             .padding(.vertical, 4)
-                            .background(isOn ? (Color(hex: cat.color) ?? .blue).opacity(0.2) : Color(.controlBackgroundColor))
+                            .background(isOn ? (Color(hex: cat.color) ?? .blue).opacity(0.2) : ThemeManager.shared.surface)
                             .clipShape(Capsule())
                         }
                         .buttonStyle(.plain)
@@ -280,7 +280,7 @@ struct HorizontalTimeline: View {
                             .foregroundStyle(.tertiary)
                             .frame(width: 40, alignment: .trailing)
                         Rectangle()
-                            .fill(Color(.separatorColor).opacity(0.5))
+                            .fill(ThemeManager.shared.border.opacity(0.5))
                             .frame(height: 0.5)
                     }
                     .offset(y: CGFloat(hour) * hourHeight)

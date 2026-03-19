@@ -144,7 +144,7 @@ struct BlockReportRow: View {
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
                             RoundedRectangle(cornerRadius: 3)
-                                .fill(Color(.separatorColor))
+                                .fill(ThemeManager.shared.border)
                                 .frame(height: 6)
                             RoundedRectangle(cornerRadius: 3)
                                 .fill(adherenceColor)

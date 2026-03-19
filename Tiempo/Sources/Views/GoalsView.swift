@@ -117,7 +117,7 @@ struct GoalRow: View {
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         RoundedRectangle(cornerRadius: 4)
-                            .fill(Color(.separatorColor))
+                            .fill(ThemeManager.shared.border)
                         RoundedRectangle(cornerRadius: 4)
                             .fill(progressColor)
                             .frame(width: geo.size.width * min(progress.percentage, 1.0))

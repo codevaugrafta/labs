@@ -172,7 +172,7 @@ private struct TagRow: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
-        .background(Color(.controlBackgroundColor).opacity(0.5))
+        .background(ThemeManager.shared.surface.opacity(0.5))
         .clipShape(RoundedRectangle(cornerRadius: 6))
     }
 }

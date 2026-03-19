@@ -157,7 +157,10 @@ struct TrackingView: View {
                                                     tick: timerTick,
                                                     isSubcategory: true
                                                 ) {
+                                                    let wasActive = engine.isActive(category: sub)
                                                     engine.toggleTimer(for: sub)
+                                                    if wasActive { TiempoFeedback.onTimerStop() }
+                                                    else { TiempoFeedback.onTimerStart() }
                                                 }
                                                 .contextMenu {
                                                     categoryContextMenu(for: sub)
@@ -181,7 +184,10 @@ struct TrackingView: View {
                                     activeEntry: engine.isActive(category: cat) ? engine.activeEntry : nil,
                                     tick: timerTick
                                 ) {
+                                    let wasActive = engine.isActive(category: cat)
                                     engine.toggleTimer(for: cat)
+                                    if wasActive { TiempoFeedback.onTimerStop() }
+                                    else { TiempoFeedback.onTimerStart() }
                                 }
                                 .contextMenu {
                                     categoryContextMenu(for: cat)
@@ -193,6 +199,7 @@ struct TrackingView: View {
                 }
             }
         }
+        .background(ThemeManager.shared.background)
         .onAppear {
             engine.configure(with: modelContext)
             orderedCategories = categories
@@ -326,11 +333,12 @@ struct CategoryTile: View {
             }
             .padding(isSubcategory ? 8 : 12)
             .background {
-                RoundedRectangle(cornerRadius: isSubcategory ? 8 : 10)
-                    .fill(isActive ? parsedColor.opacity(0.1) : Color(.controlBackgroundColor))
+                let theme = ThemeManager.shared
+                RoundedRectangle(cornerRadius: isSubcategory ? 8 : theme.tileCornerRadius)
+                    .fill(isActive ? parsedColor.opacity(0.1) : theme.surface)
                     .overlay(
-                        RoundedRectangle(cornerRadius: isSubcategory ? 8 : 10)
-                            .strokeBorder(isActive ? parsedColor : .clear, lineWidth: 2)
+                        RoundedRectangle(cornerRadius: isSubcategory ? 8 : theme.tileCornerRadius)
+                            .strokeBorder(isActive ? parsedColor : theme.border, lineWidth: isActive ? 2 : 1)
                     )
             }
         }
@@ -369,8 +377,8 @@ struct ActiveTimerBanner: View {
         }
         .padding(10)
         .background {
-            RoundedRectangle(cornerRadius: 8)
-                .fill(Color(.controlBackgroundColor))
+            RoundedRectangle(cornerRadius: ThemeManager.shared.cornerRadius)
+                .fill(ThemeManager.shared.surface)
         }
     }
 

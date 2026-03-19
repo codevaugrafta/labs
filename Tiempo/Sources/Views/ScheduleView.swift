@@ -146,7 +146,7 @@ struct DayScheduleGrid: View {
                             .frame(width: 45, alignment: .trailing)
 
                         Rectangle()
-                            .fill(Color(.separatorColor))
+                            .fill(ThemeManager.shared.border)
                             .frame(height: 0.5)
                     }
                     .offset(y: CGFloat(hour - startHour) * hourHeight)

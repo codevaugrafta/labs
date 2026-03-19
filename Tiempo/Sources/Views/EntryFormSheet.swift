@@ -270,12 +270,12 @@ struct TagPill: View {
                 .font(.caption.bold())
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
-                .background(isSelected ? Color.accentColor : Color(.controlBackgroundColor))
+                .background(isSelected ? Color.accentColor : ThemeManager.shared.surface)
                 .foregroundStyle(isSelected ? .white : .primary)
                 .clipShape(Capsule())
                 .overlay(
                     Capsule()
-                        .strokeBorder(isSelected ? Color.accentColor : Color(.separatorColor), lineWidth: 1)
+                        .strokeBorder(isSelected ? Color.accentColor : ThemeManager.shared.border, lineWidth: 1)
                 )
         }
         .buttonStyle(.plain)

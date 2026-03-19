@@ -30,6 +30,7 @@ struct ContentView: View {
                 }
         }
         .frame(minWidth: 700, minHeight: 500)
+        .background(ThemeManager.shared.background)
     }
 }
 

@@ -17,7 +17,32 @@ struct ThemeScheduleRule: Codable, Sendable {
 final class ThemeManager {
     static let shared = ThemeManager()
 
+    // WORKAROUND: `any TiempoTheme` existential defeats @Observable KeyPath tracking.
+    // SwiftUI never re-renders when `current` changes because the observation system
+    // can't track mutations to existential-typed properties reliably.
+    // Solution: keep `current` for internal use, but expose a concrete `themeVersion` Int
+    // that views observe. Bump it on every theme change.
     private(set) var current: any TiempoTheme = NativeTheme()
+
+    /// Concrete stored property that SwiftUI CAN observe. Increments on every theme change.
+    private(set) var themeVersion: Int = 0
+
+    // Resolved theme colors as concrete stored properties for SwiftUI observation
+    private(set) var background: Color = Color(.windowBackgroundColor)
+    private(set) var surface: Color = Color(.controlBackgroundColor)
+    private(set) var surfaceHover: Color = Color(.selectedContentBackgroundColor).opacity(0.1)
+    private(set) var border: Color = Color(.separatorColor)
+    private(set) var accent: Color = Color.accentColor
+    private(set) var textPrimary: Color = Color(.labelColor)
+    private(set) var textSecondary: Color = Color(.secondaryLabelColor)
+    private(set) var textTertiary: Color = Color(.tertiaryLabelColor)
+    private(set) var destructive: Color = Color(.systemRed)
+    private(set) var success: Color = Color(.systemGreen)
+    private(set) var cornerRadius: CGFloat = 8
+    private(set) var tileCornerRadius: CGFloat = 8
+    private(set) var springResponse: Double = 0.5
+    private(set) var springDamping: Double = 0.7
+    private(set) var timerPulseSpeed: Double = 2.0
 
     var autoScheduleEnabled: Bool {
         get { UserDefaults.standard.bool(forKey: "themeAutoSchedule") }
@@ -32,12 +57,11 @@ final class ThemeManager {
         set {
             UserDefaults.standard.set(newValue, forKey: "selectedThemeId")
             if !autoScheduleEnabled {
-                current = theme(for: newValue)
+                applyTheme(theme(for: newValue))
             }
         }
     }
 
-    /// Schedule rules stored as JSON in UserDefaults
     var scheduleRules: [ThemeScheduleRule] {
         get {
             guard let data = UserDefaults.standard.data(forKey: "themeScheduleRules"),
@@ -61,7 +85,6 @@ final class ThemeManager {
         BoldEditorialTheme()
     ]
 
-    /// Lightweight value type for ForEach compatibility (avoids protocol existential issues)
     struct ThemeEntry: Identifiable {
         let id: String
         let name: String
@@ -73,20 +96,25 @@ final class ThemeManager {
     }
 
     static let defaultSchedule: [ThemeScheduleRule] = [
-        ThemeScheduleRule(themeId: "native", startHour: 6, endHour: 9),      // Morning: Native
-        ThemeScheduleRule(themeId: "bold-editorial", startHour: 9, endHour: 17), // Work: Editorial
-        ThemeScheduleRule(themeId: "zen", startHour: 17, endHour: 21),       // Evening: Zen
-        ThemeScheduleRule(themeId: "warm-luxury", startHour: 21, endHour: 6) // Night: Luxury
+        ThemeScheduleRule(themeId: "native", startHour: 6, endHour: 9),
+        ThemeScheduleRule(themeId: "bold-editorial", startHour: 9, endHour: 17),
+        ThemeScheduleRule(themeId: "zen", startHour: 17, endHour: 21),
+        ThemeScheduleRule(themeId: "warm-luxury", startHour: 21, endHour: 6)
     ]
+
+    // MARK: - Sound retention (prevent ARC dealloc before playback completes)
+    private var currentSound: NSSound?
 
     // MARK: Init
 
     private init() {
+        let t: any TiempoTheme
         if autoScheduleEnabled {
-            applySchedule()
+            t = resolveScheduledTheme()
         } else {
-            current = theme(for: selectedThemeId)
+            t = theme(for: selectedThemeId)
         }
+        applyTheme(t)
     }
 
     // MARK: - Public
@@ -96,35 +124,18 @@ final class ThemeManager {
         guard let idx = ids.firstIndex(of: current.id) else { return }
         let nextIdx = (idx + 1) % ids.count
         selectedThemeId = ids[nextIdx]
-        current = Self.allThemes[nextIdx]
+        applyTheme(Self.allThemes[nextIdx])
         playHaptic(.levelChange)
     }
 
     func setTheme(_ id: String) {
         selectedThemeId = id
-        current = theme(for: id)
+        applyTheme(theme(for: id))
         playHaptic(.levelChange)
     }
 
     func applySchedule() {
-        let hour = Calendar.current.component(.hour, from: Date())
-        for rule in scheduleRules {
-            if rule.startHour <= rule.endHour {
-                // Same-day range (e.g., 9-17)
-                if hour >= rule.startHour && hour < rule.endHour {
-                    current = theme(for: rule.themeId)
-                    return
-                }
-            } else {
-                // Wraps midnight (e.g., 21-6)
-                if hour >= rule.startHour || hour < rule.endHour {
-                    current = theme(for: rule.themeId)
-                    return
-                }
-            }
-        }
-        // Fallback
-        current = theme(for: selectedThemeId)
+        applyTheme(resolveScheduledTheme())
     }
 
     // MARK: - Feedback
@@ -146,6 +157,45 @@ final class ThemeManager {
 
     // MARK: - Private
 
+    /// Resolves all concrete observable properties from a theme.
+    /// This is the key fix: bumping `themeVersion` and setting concrete Color/CGFloat
+    /// properties ensures SwiftUI re-renders views that read these.
+    private func applyTheme(_ t: any TiempoTheme) {
+        current = t
+        background = t.background
+        surface = t.surface
+        surfaceHover = t.surfaceHover
+        border = t.border
+        accent = t.accent
+        textPrimary = t.textPrimary
+        textSecondary = t.textSecondary
+        textTertiary = t.textTertiary
+        destructive = t.destructive
+        success = t.success
+        cornerRadius = t.cornerRadius
+        tileCornerRadius = t.tileCornerRadius
+        springResponse = t.springResponse
+        springDamping = t.springDamping
+        timerPulseSpeed = t.timerPulseSpeed
+        themeVersion += 1
+    }
+
+    private func resolveScheduledTheme() -> any TiempoTheme {
+        let hour = Calendar.current.component(.hour, from: Date())
+        for rule in scheduleRules {
+            if rule.startHour <= rule.endHour {
+                if hour >= rule.startHour && hour < rule.endHour {
+                    return theme(for: rule.themeId)
+                }
+            } else {
+                if hour >= rule.startHour || hour < rule.endHour {
+                    return theme(for: rule.themeId)
+                }
+            }
+        }
+        return theme(for: selectedThemeId)
+    }
+
     private func theme(for id: String) -> any TiempoTheme {
         Self.allThemes.first { $0.id == id } ?? NativeTheme()
     }
@@ -156,6 +206,8 @@ final class ThemeManager {
 
     private func playSound(_ name: String?) {
         guard let name, let sound = NSSound(named: name) else { return }
-        sound.play()
+        currentSound?.stop()
+        currentSound = sound
+        currentSound?.play()
     }
 }
