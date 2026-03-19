@@ -14,6 +14,7 @@ final class TimeEntry {
     var deletedAt: Date?
 
     var category: Category?
+    var tags: [Tag]
 
     var syncStatus: SyncStatus {
         get { SyncStatus(rawValue: syncStatusRaw) ?? .synced }
@@ -47,5 +48,21 @@ final class TimeEntry {
         self.updatedAt = Date()
         self.deletedAt = nil
         self.category = category
+        self.tags = []
+    }
+
+    /// Create a retroactive (manual) time entry
+    init(category: Category, startedAt: Date, endedAt: Date, note: String? = nil) {
+        self.id = UUID()
+        self.startedAt = startedAt
+        self.endedAt = endedAt
+        self.note = note
+        self.isRunning = false
+        self.syncStatusRaw = SyncStatus.pendingCreate.rawValue
+        self.createdAt = Date()
+        self.updatedAt = Date()
+        self.deletedAt = nil
+        self.category = category
+        self.tags = []
     }
 }

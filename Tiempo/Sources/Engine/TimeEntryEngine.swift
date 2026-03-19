@@ -10,6 +10,12 @@ final class TimeEntryEngine {
     var showCrashRecovery = false
     var recoveredEntry: TimeEntry?
 
+    /// When true, starting a new timer does NOT stop the current one.
+    var allowConcurrentTimers: Bool {
+        get { UserDefaults.standard.bool(forKey: "allowConcurrentTimers") }
+        set { UserDefaults.standard.set(newValue, forKey: "allowConcurrentTimers") }
+    }
+
     private var modelContext: ModelContext?
 
     func configure(with context: ModelContext) {
@@ -58,7 +64,7 @@ final class TimeEntryEngine {
     func startTimer(for category: Category) {
         guard let modelContext else { return }
 
-        if let running = activeEntry {
+        if !allowConcurrentTimers, let running = activeEntry {
             stopTimer(running)
         }
 
@@ -92,6 +98,110 @@ final class TimeEntryEngine {
 
     func isActive(category: Category) -> Bool {
         activeEntry?.category?.id == category.id
+    }
+
+    // MARK: - Retroactive & Edit
+
+    func addRetroactiveEntry(category: Category, startedAt: Date, endedAt: Date, note: String? = nil) {
+        guard let modelContext else { return }
+        let entry = TimeEntry(category: category, startedAt: startedAt, endedAt: endedAt, note: note)
+        modelContext.insert(entry)
+        save()
+    }
+
+    func updateEntry(_ entry: TimeEntry, category: Category? = nil, startedAt: Date? = nil, endedAt: Date? = nil, note: String? = nil) {
+        if let category { entry.category = category }
+        if let startedAt { entry.startedAt = startedAt }
+        if let endedAt { entry.endedAt = endedAt }
+        if let note { entry.note = note }
+        entry.updatedAt = Date()
+        save()
+    }
+
+    func softDeleteEntry(_ entry: TimeEntry) {
+        entry.deletedAt = Date()
+        entry.updatedAt = Date()
+        if entry.isRunning {
+            entry.isRunning = false
+            entry.endedAt = Date()
+            if entry.id == activeEntry?.id {
+                activeEntry = nil
+            }
+        }
+        save()
+    }
+
+    // MARK: - Tag Management
+
+    func addTag(name: String) -> Tag? {
+        guard let modelContext else { return nil }
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let tag = Tag(name: trimmed)
+        modelContext.insert(tag)
+        save()
+        return tag
+    }
+
+    func updateTag(_ tag: Tag, name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        tag.name = trimmed
+        tag.updatedAt = Date()
+        save()
+    }
+
+    func deleteTag(_ tag: Tag) {
+        tag.deletedAt = Date()
+        tag.updatedAt = Date()
+        save()
+    }
+
+    func assignTag(_ tag: Tag, to entry: TimeEntry) {
+        guard !entry.tags.contains(where: { $0.id == tag.id }) else { return }
+        entry.tags.append(tag)
+        entry.updatedAt = Date()
+        save()
+    }
+
+    func removeTag(_ tag: Tag, from entry: TimeEntry) {
+        entry.tags.removeAll { $0.id == tag.id }
+        entry.updatedAt = Date()
+        save()
+    }
+
+    // MARK: - Category Management
+
+    func archiveCategory(_ category: Category) {
+        category.isArchived = true
+        category.updatedAt = Date()
+        save()
+    }
+
+    func canDeleteCategory(_ category: Category) -> Bool {
+        // Block deletion if category has entries, scheduled blocks, or goals
+        return category.timeEntries.isEmpty
+    }
+
+    /// Returns nil if valid; returns error message if invalid.
+    func validateSubcategory(parentId: UUID?, allCategories: [Category]) -> String? {
+        guard let parentId else { return nil } // no parent = top-level, always valid
+        // Enforce 1-level max: parent must not itself have a parent
+        guard let parent = allCategories.first(where: { $0.id == parentId }) else {
+            return "Parent category not found."
+        }
+        if parent.parentId != nil {
+            return "Subcategories cannot be nested more than one level."
+        }
+        return nil
+    }
+
+    func updateCategorySortOrders(_ categories: [Category]) {
+        for (index, category) in categories.enumerated() {
+            category.sortOrder = index
+            category.updatedAt = Date()
+        }
+        save()
     }
 
     private func findRunningEntry() -> TimeEntry? {

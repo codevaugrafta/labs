@@ -10,6 +10,6 @@ struct TiempoApp: App {
             ContentView()
                 .environment(engine)
         }
-        .modelContainer(for: [Category.self, TimeEntry.self])
+        .modelContainer(for: [Category.self, TimeEntry.self, Tag.self])
     }
 }
