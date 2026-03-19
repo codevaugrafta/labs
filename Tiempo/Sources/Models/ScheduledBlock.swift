@@ -76,11 +76,11 @@ final class ScheduledBlock {
         return (comps.hour ?? 0, comps.minute ?? 0)
     }
 
-    /// Duration in minutes
+    /// Duration in minutes (clamped to 0 for safety)
     var durationMinutes: Int {
         let start = startHourMinute
         let end = endHourMinute
-        return (end.hour * 60 + end.minute) - (start.hour * 60 + start.minute)
+        return max(0, (end.hour * 60 + end.minute) - (start.hour * 60 + start.minute))
     }
 
     /// The actual calendar date this block is on

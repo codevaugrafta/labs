@@ -73,6 +73,22 @@ class TiempoAppDelegate: NSObject, NSApplicationDelegate {
 struct SettingsTab: View {
     let engine: TimeEntryEngine
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
+    @State private var themeManager = ThemeManager.shared
+
+    var body: some View {
+        TabView {
+            GeneralSettingsView(engine: engine, launchAtLogin: $launchAtLogin)
+                .tabItem { Label("General", systemImage: "gear") }
+            ThemeSettingsView()
+                .tabItem { Label("Appearance", systemImage: "paintbrush") }
+        }
+        .frame(width: 480, height: 360)
+    }
+}
+
+struct GeneralSettingsView: View {
+    let engine: TimeEntryEngine
+    @Binding var launchAtLogin: Bool
 
     var body: some View {
         Form {
@@ -86,7 +102,7 @@ struct SettingsTab: View {
                                 try SMAppService.mainApp.unregister()
                             }
                         } catch {
-                            launchAtLogin = !newValue // Revert on failure
+                            launchAtLogin = !newValue
                         }
                     }
 
@@ -103,6 +119,73 @@ struct SettingsTab: View {
             }
         }
         .formStyle(.grouped)
-        .frame(width: 400, height: 250)
+    }
+}
+
+struct ThemeSettingsView: View {
+    var body: some View {
+        Form {
+            Section("Theme") {
+                let entries = ThemeManager.themeEntries
+                let currentId = ThemeManager.shared.current.id
+                ForEach(entries) { entry in
+                    ThemeRow(entry: entry, isSelected: entry.id == currentId)
+                }
+            }
+
+            Section("Auto Schedule") {
+                let autoEnabled = ThemeManager.shared.autoScheduleEnabled
+                Toggle("Switch themes by time of day", isOn: Binding(
+                    get: { ThemeManager.shared.autoScheduleEnabled },
+                    set: { ThemeManager.shared.autoScheduleEnabled = $0 }
+                ))
+
+                if autoEnabled {
+                    ForEach(ThemeManager.defaultSchedule, id: \.themeId) { rule in
+                        let themeName = ThemeManager.allThemes.first { $0.id == rule.themeId }?.displayName ?? rule.themeId
+                        HStack {
+                            Text(themeName)
+                                .font(.caption)
+                            Spacer()
+                            Text("\(rule.startHour):00 – \(rule.endHour):00")
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+
+            Section("Feedback") {
+                Toggle("Sound effects", isOn: .constant(true))
+                Toggle("Haptic feedback (trackpad)", isOn: .constant(true))
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+struct ThemeRow: View {
+    let entry: ThemeManager.ThemeEntry
+    let isSelected: Bool
+
+    var body: some View {
+        HStack {
+            Circle()
+                .fill(entry.accent)
+                .frame(width: 12, height: 12)
+            Text(entry.name)
+                .font(.body)
+            Spacer()
+            if isSelected {
+                Image(systemName: "checkmark")
+                    .foregroundStyle(Color.accentColor)
+                    .fontWeight(.semibold)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            ThemeManager.shared.setTheme(entry.id)
+        }
+        .padding(.vertical, 2)
     }
 }

@@ -288,11 +288,9 @@ struct HorizontalTimeline: View {
 
                 // Entry blocks
                 ForEach(entries) { entry in
-                    if let cat = entry.category, let end = entry.endedAt {
-                        let startMin = minuteOfDay(entry.startedAt)
-                        let endMin = minuteOfDay(end)
-                        let top = CGFloat(startMin) / 60.0 * hourHeight
-                        let height = max(CGFloat(endMin - startMin) / 60.0 * hourHeight, 16)
+                    if let cat = entry.category, let range = clampedMinuteRange(for: entry) {
+                        let top = CGFloat(range.start) / 60.0 * hourHeight
+                        let height = max(CGFloat(range.end - range.start) / 60.0 * hourHeight, 16)
 
                         HStack(spacing: 4) {
                             Text(cat.name)
@@ -313,6 +311,20 @@ struct HorizontalTimeline: View {
             .frame(height: 24 * hourHeight)
             .padding()
         }
+    }
+
+    /// Clamp entry times to the current day's bounds for safe rendering.
+    private func clampedMinuteRange(for entry: TimeEntry) -> (start: Int, end: Int)? {
+        guard let endedAt = entry.endedAt else { return nil }
+        let cal = Calendar.current
+        let dayStart = cal.startOfDay(for: entry.startedAt)
+        let dayEnd = cal.date(byAdding: .day, value: 1, to: dayStart)!
+        let clampedStart = max(entry.startedAt, dayStart)
+        let clampedEnd = min(endedAt, dayEnd)
+        guard clampedStart < clampedEnd else { return nil }
+        let startMin = minuteOfDay(clampedStart)
+        let endMin = minuteOfDay(clampedEnd)
+        return (startMin, max(endMin, startMin + 1)) // at least 1 minute for visibility
     }
 
     private func minuteOfDay(_ date: Date) -> Int {

@@ -9,6 +9,7 @@ final class Category {
     var icon: String? // emoji or SF Symbol name
     var parentId: UUID? // subcategory support (max 1 level)
     var isArchived: Bool
+    var isFavorite: Bool = false
     var sortOrder: Int
     var syncStatusRaw: Int // backing storage for SyncStatus
     var createdAt: Date
@@ -36,6 +37,7 @@ final class Category {
         self.icon = icon
         self.parentId = parentId
         self.isArchived = false
+        self.isFavorite = false
         self.sortOrder = sortOrder
         self.syncStatusRaw = SyncStatus.pendingCreate.rawValue
         self.createdAt = Date()

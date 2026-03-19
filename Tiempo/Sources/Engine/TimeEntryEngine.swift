@@ -19,6 +19,7 @@ final class TimeEntryEngine {
     private(set) var modelContext: ModelContext?
 
     func configure(with context: ModelContext) {
+        guard self.modelContext == nil else { return }
         self.modelContext = context
         let found = findRunningEntry()
         if let found {
@@ -89,8 +90,8 @@ final class TimeEntryEngine {
     }
 
     func toggleTimer(for category: Category) {
-        if let active = activeEntry, active.category?.id == category.id {
-            stopTimer(active)
+        if let running = findRunningEntry(for: category) {
+            stopTimer(running)
         } else {
             startTimer(for: category)
         }
@@ -105,16 +106,27 @@ final class TimeEntryEngine {
     }
 
     func isActive(category: Category) -> Bool {
-        activeEntry?.category?.id == category.id
+        findRunningEntry(for: category) != nil
+    }
+
+    /// All currently running entries (supports concurrent timers).
+    var runningEntries: [TimeEntry] {
+        guard let modelContext else { return [] }
+        let descriptor = FetchDescriptor<TimeEntry>(
+            predicate: #Predicate { $0.isRunning && $0.deletedAt == nil }
+        )
+        return (try? modelContext.fetch(descriptor)) ?? []
     }
 
     // MARK: - Retroactive & Edit
 
-    func addRetroactiveEntry(category: Category, startedAt: Date, endedAt: Date, note: String? = nil) {
-        guard let modelContext else { return }
+    @discardableResult
+    func addRetroactiveEntry(category: Category, startedAt: Date, endedAt: Date, note: String? = nil) -> TimeEntry? {
+        guard let modelContext else { return nil }
         let entry = TimeEntry(category: category, startedAt: startedAt, endedAt: endedAt, note: note)
         modelContext.insert(entry)
         save()
+        return entry
     }
 
     /// Update a time entry. Pass `updateNote: true` with `note: nil` to explicitly clear the note.
@@ -157,6 +169,17 @@ final class TimeEntryEngine {
         guard let modelContext else { return nil }
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
+
+        // Return existing tag if duplicate (case-insensitive)
+        let descriptor = FetchDescriptor<Tag>(
+            predicate: #Predicate { $0.deletedAt == nil }
+        )
+        let existing = (try? modelContext.fetch(descriptor)) ?? []
+        let lowered = trimmed.lowercased()
+        if let match = existing.first(where: { $0.name.lowercased() == lowered }) {
+            return match
+        }
+
         let tag = Tag(name: trimmed)
         modelContext.insert(tag)
         save()
@@ -190,6 +213,23 @@ final class TimeEntryEngine {
         save()
     }
 
+    // MARK: - Favorites
+
+    func toggleFavorite(_ category: Category) {
+        category.isFavorite.toggle()
+        category.updatedAt = Date()
+        save()
+    }
+
+    var favoriteCategories: [Category] {
+        guard let modelContext else { return [] }
+        let descriptor = FetchDescriptor<Category>(
+            predicate: #Predicate { $0.deletedAt == nil && !$0.isArchived && $0.isFavorite },
+            sortBy: [SortDescriptor(\Category.sortOrder)]
+        )
+        return (try? modelContext.fetch(descriptor)) ?? []
+    }
+
     // MARK: - Category Management
 
     func archiveCategory(_ category: Category) {
@@ -199,8 +239,23 @@ final class TimeEntryEngine {
     }
 
     func canDeleteCategory(_ category: Category) -> Bool {
-        // Block deletion if category has entries, scheduled blocks, or goals
-        return category.timeEntries.isEmpty
+        guard let modelContext else { return category.timeEntries.isEmpty }
+        if !category.timeEntries.isEmpty { return false }
+
+        let catId = category.id
+        let blockDescriptor = FetchDescriptor<ScheduledBlock>(
+            predicate: #Predicate { $0.deletedAt == nil }
+        )
+        let blocks = (try? modelContext.fetch(blockDescriptor)) ?? []
+        if blocks.contains(where: { $0.category?.id == catId }) { return false }
+
+        let goalDescriptor = FetchDescriptor<Goal>(
+            predicate: #Predicate { $0.deletedAt == nil }
+        )
+        let goals = (try? modelContext.fetch(goalDescriptor)) ?? []
+        if goals.contains(where: { $0.category?.id == catId }) { return false }
+
+        return true
     }
 
     /// Returns nil if valid; returns error message if invalid.
@@ -230,6 +285,15 @@ final class TimeEntryEngine {
             predicate: #Predicate { $0.isRunning && $0.deletedAt == nil }
         )
         return try? modelContext.fetch(descriptor).first
+    }
+
+    private func findRunningEntry(for category: Category) -> TimeEntry? {
+        guard let modelContext else { return nil }
+        let descriptor = FetchDescriptor<TimeEntry>(
+            predicate: #Predicate { $0.isRunning && $0.deletedAt == nil }
+        )
+        let catId = category.id
+        return (try? modelContext.fetch(descriptor))?.first { $0.category?.id == catId }
     }
 
     private func save() {

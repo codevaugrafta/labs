@@ -96,6 +96,7 @@ struct TrackingView: View {
                     color: cat.color,
                     tick: timerTick
                 ) {
+                    TiempoFeedback.onTimerStop()
                     engine.stopTimer()
                 }
                 .padding(.horizontal)
@@ -125,7 +126,10 @@ struct TrackingView: View {
                                     activeEntry: engine.isActive(category: parent) ? engine.activeEntry : nil,
                                     tick: timerTick
                                 ) {
+                                    let wasActive = engine.isActive(category: parent)
                                     engine.toggleTimer(for: parent)
+                                    if wasActive { TiempoFeedback.onTimerStop() }
+                                    else { TiempoFeedback.onTimerStart() }
                                 }
                                 .contextMenu {
                                     categoryContextMenu(for: parent)
@@ -243,6 +247,14 @@ struct TrackingView: View {
     @ViewBuilder
     private func categoryContextMenu(for category: Category) -> some View {
         Button {
+            engine.toggleFavorite(category)
+        } label: {
+            Label(
+                category.isFavorite ? "Remove from Favorites" : "Add to Favorites",
+                systemImage: category.isFavorite ? "star.fill" : "star"
+            )
+        }
+        Button {
             engine.archiveCategory(category)
         } label: {
             Label("Archive", systemImage: "archivebox")
@@ -302,6 +314,11 @@ struct CategoryTile: View {
                             Text(category.name)
                                 .font(isActive ? .caption : (isSubcategory ? .callout : .body))
                                 .foregroundStyle(isActive ? .secondary : .primary)
+                            if category.isFavorite {
+                                Image(systemName: "star.fill")
+                                    .font(.caption2)
+                                    .foregroundStyle(.yellow)
+                            }
                         }
                     }
                     Spacer()
@@ -340,6 +357,7 @@ struct ActiveTimerBanner: View {
             Circle()
                 .fill(Color(hex: color) ?? .blue)
                 .frame(width: 10, height: 10)
+                .timerPulse(isActive: true)
             Text(durationText)
                 .font(.system(.body, design: .monospaced).bold())
             Text(categoryName)

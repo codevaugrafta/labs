@@ -4,9 +4,19 @@ import SwiftData
 @MainActor
 final class GoalsEngine {
     private var modelContext: ModelContext?
+    var lastError: String?
 
     func configure(with context: ModelContext) {
         self.modelContext = context
+    }
+
+    private func save() {
+        do {
+            try modelContext?.save()
+            lastError = nil
+        } catch {
+            lastError = "Goals save failed: \(error.localizedDescription)"
+        }
     }
 
     struct GoalProgress {
@@ -23,14 +33,14 @@ final class GoalsEngine {
         guard let modelContext else { return nil }
         let goal = Goal(category: category, targetMinutes: targetMinutes, period: period)
         modelContext.insert(goal)
-        try? modelContext.save()
+        save()
         return goal
     }
 
     func deleteGoal(_ goal: Goal) {
         goal.deletedAt = Date()
         goal.updatedAt = Date()
-        try? modelContext?.save()
+        save()
     }
 
     func progress(for goal: Goal, referenceDate: Date = Date()) -> GoalProgress {

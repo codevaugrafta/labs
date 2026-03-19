@@ -191,17 +191,12 @@ struct EntryFormSheet: View {
 
         switch mode {
         case .add:
-            engine.addRetroactiveEntry(
+            if let newEntry = engine.addRetroactiveEntry(
                 category: category,
                 startedAt: startDate,
                 endedAt: endDate,
                 note: note.isEmpty ? nil : note
-            )
-            // Assign selected tags
-            let allEntries = (try? modelContext.fetch(FetchDescriptor<TimeEntry>(
-                sortBy: [SortDescriptor(\TimeEntry.createdAt, order: .reverse)]
-            ))) ?? []
-            if let newEntry = allEntries.first {
+            ) {
                 for tag in allTags where selectedTagIds.contains(tag.id) {
                     engine.assignTag(tag, to: newEntry)
                 }

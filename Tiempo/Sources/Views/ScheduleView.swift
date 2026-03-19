@@ -95,6 +95,7 @@ struct ScheduleView: View {
         }
         .onAppear {
             scheduleEngine.configure(with: modelContext)
+            scheduleEngine.materializeIfNeeded()
         }
     }
 
@@ -295,7 +296,7 @@ struct AddBlockSheet: View {
         self.onDone = onDone
 
         // Convert minutes to Date with time components
-        var cal = Calendar.current
+        let cal = Calendar.current
         let start = cal.date(bySettingHour: startMinutes / 60, minute: startMinutes % 60, second: 0, of: Date()) ?? Date()
         let end = cal.date(bySettingHour: endMinutes / 60, minute: endMinutes % 60, second: 0, of: Date()) ?? Date()
         self._startTime = State(initialValue: start)

@@ -5,9 +5,17 @@ import SwiftData
 @MainActor
 final class AccountabilityEngine {
     private var modelContext: ModelContext?
+    private var scheduleEngine: ScheduleEngine?
 
-    func configure(with context: ModelContext) {
+    func configure(with context: ModelContext, scheduleEngine: ScheduleEngine? = nil) {
         self.modelContext = context
+        if let scheduleEngine {
+            self.scheduleEngine = scheduleEngine
+        } else if self.scheduleEngine == nil {
+            let engine = ScheduleEngine()
+            engine.configure(with: context)
+            self.scheduleEngine = engine
+        }
     }
 
     // MARK: - Core Types
@@ -50,12 +58,10 @@ final class AccountabilityEngine {
     // MARK: - Compute Daily Report
 
     func dailyReport(for date: Date) -> DayReport {
-        guard let modelContext else {
+        guard modelContext != nil, let scheduleEngine else {
             return DayReport(date: date, blocks: [], unscheduledMinutes: 0, score: nil)
         }
 
-        let scheduleEngine = ScheduleEngine()
-        scheduleEngine.configure(with: modelContext)
         let weekStart = scheduleEngine.mondayOfWeek(containing: date)
         let dayOfWeek = Calendar.current.component(.weekday, from: date) - 1 // 0=Sun
 

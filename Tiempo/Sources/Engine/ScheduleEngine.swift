@@ -5,8 +5,15 @@ import SwiftData
 final class ScheduleEngine {
     private var modelContext: ModelContext?
 
+    private var lastError: String?
+
     func configure(with context: ModelContext) {
+        guard self.modelContext == nil else { return }
         self.modelContext = context
+    }
+
+    /// Call explicitly when the schedule view appears — not on every configure.
+    func materializeIfNeeded() {
         materializeUpcomingWeeks()
     }
 
@@ -143,8 +150,9 @@ final class ScheduleEngine {
 
         // Get the template's blocks from the most recent materialized week
         for block in template.blocks where block.deletedAt == nil && !block.isException {
+            guard let blockCategory = block.category else { continue }
             let newBlock = ScheduledBlock(
-                category: block.category ?? Category(name: "Unknown", color: "#888"),
+                category: blockCategory,
                 weekStart: weekStart,
                 dayOfWeek: block.dayOfWeek,
                 startTime: block.startTime,
@@ -174,6 +182,11 @@ final class ScheduleEngine {
     }
 
     private func save() {
-        try? modelContext?.save()
+        do {
+            try modelContext?.save()
+            lastError = nil
+        } catch {
+            lastError = "Schedule save failed: \(error.localizedDescription)"
+        }
     }
 }
