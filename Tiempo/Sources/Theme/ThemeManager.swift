@@ -22,7 +22,7 @@ final class ThemeManager {
     // can't track mutations to existential-typed properties reliably.
     // Solution: keep `current` for internal use, but expose a concrete `themeVersion` Int
     // that views observe. Bump it on every theme change.
-    private(set) var current: any TiempoTheme = NativeTheme()
+    private(set) var current: any TiempoTheme = StandardTheme()
 
     /// Concrete stored property that SwiftUI CAN observe. Increments on every theme change.
     private(set) var themeVersion: Int = 0
@@ -43,6 +43,12 @@ final class ThemeManager {
     private(set) var springResponse: Double = 0.5
     private(set) var springDamping: Double = 0.7
     private(set) var timerPulseSpeed: Double = 2.0
+    private(set) var timerText: Color = Color(.labelColor)
+    private(set) var timerFont: Font = Font.system(size: 28, weight: .medium, design: .monospaced)
+    private(set) var headingFont: Font = Font.system(size: 22, weight: .bold)
+    private(set) var labelFont: Font = Font.system(size: 11, weight: .medium)
+    private(set) var labelLetterSpacing: CGFloat = 0.5
+    private(set) var usesCustomLayout: Bool = false
 
     var autoScheduleEnabled: Bool {
         get { UserDefaults.standard.bool(forKey: "themeAutoSchedule") }
@@ -53,7 +59,7 @@ final class ThemeManager {
     }
 
     var selectedThemeId: String {
-        get { UserDefaults.standard.string(forKey: "selectedThemeId") ?? "native" }
+        get { UserDefaults.standard.string(forKey: "selectedThemeId") ?? "standard" }
         set {
             UserDefaults.standard.set(newValue, forKey: "selectedThemeId")
             if !autoScheduleEnabled {
@@ -79,10 +85,9 @@ final class ThemeManager {
     // MARK: All available themes
 
     static let allThemes: [any TiempoTheme] = [
-        NativeTheme(),
-        ZenTheme(),
-        WarmLuxuryTheme(),
-        BoldEditorialTheme()
+        StandardTheme(),
+        StandardDarkTheme(),
+        SignatureTheme()
     ]
 
     struct ThemeEntry: Identifiable {
@@ -96,10 +101,9 @@ final class ThemeManager {
     }
 
     static let defaultSchedule: [ThemeScheduleRule] = [
-        ThemeScheduleRule(themeId: "native", startHour: 6, endHour: 9),
-        ThemeScheduleRule(themeId: "bold-editorial", startHour: 9, endHour: 17),
-        ThemeScheduleRule(themeId: "zen", startHour: 17, endHour: 21),
-        ThemeScheduleRule(themeId: "warm-luxury", startHour: 21, endHour: 6)
+        ThemeScheduleRule(themeId: "standard", startHour: 6, endHour: 18),
+        ThemeScheduleRule(themeId: "standard-dark", startHour: 18, endHour: 22),
+        ThemeScheduleRule(themeId: "signature", startHour: 22, endHour: 6)
     ]
 
     // MARK: - Sound retention (prevent ARC dealloc before playback completes)
@@ -170,6 +174,7 @@ final class ThemeManager {
         textPrimary = t.textPrimary
         textSecondary = t.textSecondary
         textTertiary = t.textTertiary
+        timerText = t.timerText
         destructive = t.destructive
         success = t.success
         cornerRadius = t.cornerRadius
@@ -177,7 +182,32 @@ final class ThemeManager {
         springResponse = t.springResponse
         springDamping = t.springDamping
         timerPulseSpeed = t.timerPulseSpeed
+        timerFont = t.timerFont
+        headingFont = t.headingFont
+        labelFont = t.labelFont
+        labelLetterSpacing = t.labelLetterSpacing
+        usesCustomLayout = t.usesCustomLayout
         themeVersion += 1
+
+        // Force window appearance for dark themes
+        applyWindowAppearance(t.forcedAppearance)
+    }
+
+    private func applyWindowAppearance(_ appearance: String?) {
+        let nsAppearance: NSAppearance?
+        switch appearance {
+        case "dark":
+            nsAppearance = NSAppearance(named: .darkAqua)
+        case "light":
+            nsAppearance = NSAppearance(named: .aqua)
+        default:
+            nsAppearance = nil // Follow system
+        }
+        // Apply to all windows
+        for window in NSApplication.shared.windows {
+            window.appearance = nsAppearance
+        }
+        NSApplication.shared.appearance = nsAppearance
     }
 
     private func resolveScheduledTheme() -> any TiempoTheme {
@@ -197,7 +227,7 @@ final class ThemeManager {
     }
 
     private func theme(for id: String) -> any TiempoTheme {
-        Self.allThemes.first { $0.id == id } ?? NativeTheme()
+        Self.allThemes.first { $0.id == id } ?? StandardTheme()
     }
 
     private func playHaptic(_ pattern: NSHapticFeedbackManager.FeedbackPattern) {

@@ -49,6 +49,12 @@ protocol TiempoTheme: Sendable {
     // MARK: Haptic
     var hapticOnStart: Bool { get }
     var hapticOnStop: Bool { get }
+
+    // MARK: Layout
+    /// "dark" to force NSAppearance.darkAqua, "light" for aqua, nil for system
+    var forcedAppearance: String? { get }
+    /// true = uses custom sidebar layout instead of system TabView
+    var usesCustomLayout: Bool { get }
 }
 
 // MARK: - Theme Defaults
@@ -67,4 +73,6 @@ extension TiempoTheme {
     var completeSound: String? { nil }
     var hapticOnStart: Bool { true }
     var hapticOnStop: Bool { true }
+    var forcedAppearance: String? { nil }
+    var usesCustomLayout: Bool { false }
 }

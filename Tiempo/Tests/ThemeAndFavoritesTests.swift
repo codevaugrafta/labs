@@ -68,16 +68,15 @@ struct ThemeAndFavoritesTests {
 
     // MARK: - Theme Engine
 
-    @Test("All 4 themes are available")
+    @Test("All 3 themes are available")
     @MainActor
     func allThemesAvailable() {
         let themes = ThemeManager.allThemes
-        #expect(themes.count == 4)
+        #expect(themes.count == 3)
         let ids = Set(themes.map(\.id))
-        #expect(ids.contains("zen"))
-        #expect(ids.contains("native"))
-        #expect(ids.contains("warm-luxury"))
-        #expect(ids.contains("bold-editorial"))
+        #expect(ids.contains("standard"))
+        #expect(ids.contains("standard-dark"))
+        #expect(ids.contains("signature"))
     }
 
     @Test("ThemeManager cycles through themes")
@@ -90,7 +89,6 @@ struct ThemeAndFavoritesTests {
         // Cycle back to start
         manager.cycleTheme()
         manager.cycleTheme()
-        manager.cycleTheme()
         #expect(manager.current.id == startId)
     }
 
@@ -98,37 +96,35 @@ struct ThemeAndFavoritesTests {
     @MainActor
     func setTheme() {
         let manager = ThemeManager.shared
-        manager.setTheme("zen")
-        #expect(manager.current.id == "zen")
-        manager.setTheme("bold-editorial")
-        #expect(manager.current.id == "bold-editorial")
-        // Reset to native for other tests
-        manager.setTheme("native")
+        manager.setTheme("signature")
+        #expect(manager.current.id == "signature")
+        manager.setTheme("standard-dark")
+        #expect(manager.current.id == "standard-dark")
+        // Reset to standard for other tests
+        manager.setTheme("standard")
     }
 
     @Test("Theme entries match available themes")
     @MainActor
     func themeEntries() {
         let entries = ThemeManager.themeEntries
-        #expect(entries.count == 4)
-        #expect(entries[0].id == "native")
-        #expect(entries[1].id == "zen")
+        #expect(entries.count == 3)
+        #expect(entries[0].id == "standard")
+        #expect(entries[1].id == "standard-dark")
+        #expect(entries[2].id == "signature")
     }
 
-    @Test("Each theme has distinct visual properties")
+    @Test("Signature theme has custom layout and dark appearance")
     @MainActor
-    func themeDistinctness() {
-        let zen = ZenTheme()
-        let editorial = BoldEditorialTheme()
+    func signatureThemeProperties() {
+        let sig = SignatureTheme()
+        let std = StandardTheme()
 
-        // Zen is slow, editorial is fast
-        #expect(zen.timerPulseSpeed > editorial.timerPulseSpeed)
-        #expect(zen.transitionDuration > editorial.transitionDuration)
-        #expect(zen.springDamping < editorial.springDamping) // More bounce
-
-        // Editorial has sharp corners
-        #expect(editorial.cornerRadius == 0)
-        #expect(zen.cornerRadius > 0)
+        #expect(sig.usesCustomLayout == true)
+        #expect(std.usesCustomLayout == false)
+        #expect(sig.forcedAppearance == "dark")
+        #expect(std.forcedAppearance == nil)
+        #expect(sig.timerPulseSpeed > std.timerPulseSpeed) // Slower breathing
     }
 
     @Test("Default schedule covers 24 hours")
