@@ -4,8 +4,8 @@
   import TextRenderer from '$lib/components/TextRenderer.svelte';
   import AudioControls from '$lib/components/AudioControls.svelte';
   import ImportDialog from '$lib/components/ImportDialog.svelte';
-  import { audioPlayer } from '$lib/stores/audio';
-  import { syncEngine } from '$lib/stores/sync';
+  import { audioPlayer } from '$lib/stores/audio.svelte';
+  import { syncEngine } from '$lib/stores/sync.svelte';
   import type { WordTimestamp, SentenceBoundary } from '$lib/types';
   import '$lib/styles/global.css';
 

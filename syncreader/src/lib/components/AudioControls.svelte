@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { audioPlayer } from '$lib/stores/audio';
-  import { syncEngine } from '$lib/stores/sync';
+  import { audioPlayer } from '$lib/stores/audio.svelte';
+  import { syncEngine } from '$lib/stores/sync.svelte';
   import type { PlaybackSpeed, LoopMode } from '$lib/types';
 
   type LoopModeEntry = { mode: LoopMode; label: string; icon: string };

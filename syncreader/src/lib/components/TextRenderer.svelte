@@ -1,6 +1,6 @@
 <script lang="ts">
-  import { syncEngine } from '$lib/stores/sync';
-  import { audioPlayer } from '$lib/stores/audio';
+  import { syncEngine } from '$lib/stores/sync.svelte';
+  import { audioPlayer } from '$lib/stores/audio.svelte';
   import type { WordTimestamp, SentenceBoundary } from '$lib/types';
 
   let {
