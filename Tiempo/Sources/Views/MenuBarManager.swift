@@ -8,10 +8,12 @@ final class MenuBarManager {
     private var statusItem: NSStatusItem?
     private var timer: AnyCancellable?
     private weak var engine: TimeEntryEngine?
+    private weak var floatingPanel: FloatingTimerPanel?
     private var lastActiveEntryId: UUID?
 
-    func setup(engine: TimeEntryEngine) {
+    func setup(engine: TimeEntryEngine, floatingPanel: FloatingTimerPanel? = nil) {
         self.engine = engine
+        self.floatingPanel = floatingPanel
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         updateStatusItem()
 
@@ -153,6 +155,19 @@ final class MenuBarManager {
             }
         }
 
+        // ── Floating Timer ──
+        let floatingTitle = (floatingPanel?.isVisible ?? false) ? "Hide Floating Timer" : "Show Floating Timer"
+        let floatingItem = NSMenuItem(title: floatingTitle, action: #selector(toggleFloatingPanel), keyEquivalent: "f")
+        floatingItem.target = self
+        floatingItem.keyEquivalentModifierMask = [.command, .shift]
+        menu.addItem(floatingItem)
+
+        // ── Show Main Window ──
+        let showWindowItem = NSMenuItem(title: "Show Main Window", action: #selector(showMainWindow), keyEquivalent: "o")
+        showWindowItem.target = self
+        showWindowItem.keyEquivalentModifierMask = [.command]
+        menu.addItem(showWindowItem)
+
         // ── Theme Section ──
         let themeManager = ThemeManager.shared
         let themeItem = NSMenuItem(
@@ -201,6 +216,20 @@ final class MenuBarManager {
         }
         buildMenu()
         updateStatusItem()
+    }
+
+    @objc private func toggleFloatingPanel() {
+        if floatingPanel?.isVisible ?? false {
+            floatingPanel?.hide()
+        } else {
+            floatingPanel?.show()
+        }
+        buildMenu()
+    }
+
+    @objc private func showMainWindow() {
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.windows.first { $0.title != "" && !($0 is NSPanel) }?.makeKeyAndOrderFront(nil)
     }
 
     @objc private func cycleTheme() {

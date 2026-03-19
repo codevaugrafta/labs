@@ -9,12 +9,7 @@ struct TiempoApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environment(engine)
-                .environment(ThemeManager.shared)
-                .onAppear {
-                    appDelegate.wireUp(engine: engine)
-                }
+            AppBootstrapView(engine: engine, appDelegate: appDelegate)
         }
         .modelContainer(for: [
             Category.self, TimeEntry.self, Tag.self,
@@ -25,6 +20,26 @@ struct TiempoApp: App {
             SettingsTab(engine: engine)
                 .environment(ThemeManager.shared)
         }
+    }
+}
+
+// MARK: - Bootstrap View (connects modelContext → engine → menu bar)
+
+/// This view exists to bridge SwiftUI's @Environment(\.modelContext)
+/// to the engine before ContentView renders, so the menu bar has data.
+struct AppBootstrapView: View {
+    @Environment(\.modelContext) private var modelContext
+    let engine: TimeEntryEngine
+    let appDelegate: TiempoAppDelegate
+
+    var body: some View {
+        ContentView()
+            .environment(engine)
+            .environment(ThemeManager.shared)
+            .onAppear {
+                engine.configure(with: modelContext)
+                appDelegate.wireUp(engine: engine)
+            }
     }
 }
 
@@ -40,7 +55,7 @@ class TiempoAppDelegate: NSObject, NSApplicationDelegate {
     func wireUp(engine: TimeEntryEngine) {
         guard self.engine == nil else { return } // Only once
         self.engine = engine
-        menuBarManager.setup(engine: engine)
+        menuBarManager.setup(engine: engine, floatingPanel: floatingPanel)
         floatingPanel.setup(engine: engine)
         registerGlobalHotkey()
     }
