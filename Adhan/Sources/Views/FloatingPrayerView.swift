@@ -80,6 +80,7 @@ struct FloatingPrayerView: View {
             }
             .padding(.horizontal, padding)
             .padding(.top, padding)
+            .animation(.spring(response: 0.38, dampingFraction: 0.82), value: isHovered)
 
             // Next prayer countdown
             if let next = engine.nextPrayer {

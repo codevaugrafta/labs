@@ -13,6 +13,35 @@ enum AppSettings {
 
     // MARK: - Display
     static let menuBarDisplayModeKey = "adhan_menuBarDisplayMode"
+    /// Menu bar dropdown: show Hijri date row (default on).
+    static let menuBarShowHijriDateKey = "adhan_menuBar_showHijriDate"
+    /// Menu bar dropdown: show location row (default on).
+    static let menuBarShowLocationKey = "adhan_menuBar_showLocation"
+    /// Menu bar dropdown: show prayer timetable, preview, and “Next:” summary (default on).
+    static let menuBarShowPrayerTimetableKey = "adhan_menuBar_showPrayerTimetable"
+    /// When true, menu bar jumps to the next prayer’s **begin** time after Adhan (legacy). When false/absent, count down to **Iqamah** first when mosque data provides it.
+    static let menuBarSkipIqamahCountdownKey = "adhan_menuBar_skipIqamahCountdown"
+
+    /// `nil` in UserDefaults means “default true” for existing users.
+    static func menuBarShowsHijriDate() -> Bool {
+        guard UserDefaults.standard.object(forKey: menuBarShowHijriDateKey) != nil else { return true }
+        return UserDefaults.standard.bool(forKey: menuBarShowHijriDateKey)
+    }
+
+    static func menuBarShowsLocation() -> Bool {
+        guard UserDefaults.standard.object(forKey: menuBarShowLocationKey) != nil else { return true }
+        return UserDefaults.standard.bool(forKey: menuBarShowLocationKey)
+    }
+
+    static func menuBarShowsPrayerTimetable() -> Bool {
+        guard UserDefaults.standard.object(forKey: menuBarShowPrayerTimetableKey) != nil else { return true }
+        return UserDefaults.standard.bool(forKey: menuBarShowPrayerTimetableKey)
+    }
+
+    /// `nil` / false → show Iqamah countdown after Adhan when available (default).
+    static func menuBarSkipsIqamahCountdown() -> Bool {
+        UserDefaults.standard.bool(forKey: menuBarSkipIqamahCountdownKey)
+    }
     /// Main window text: 0 = Medium, 1 = Large (default), 2 = XLarge, 3 = XXLarge (DynamicTypeSize).
     static let mainWindowTextSizeKey = "adhan_mainWindowTextSize"
     static let floatingPanelSizeKey = "adhan_floatingPanelSize"

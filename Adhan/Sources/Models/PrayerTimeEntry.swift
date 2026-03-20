@@ -36,18 +36,30 @@ struct PrayerTimeEntry: Identifiable, Sendable {
         adhanTime <= Date()
     }
 
-    /// Formatted countdown string (e.g., "2:34:15").
+    /// Formatted countdown string (e.g., "2:34:15") until **Adhan (begin)** time.
     var formattedCountdown: String {
-        let remaining = max(0, timeUntil)
+        Self.formatCountdownInterval(max(0, timeUntil))
+    }
+
+    /// Countdown until Iqamah when `iqamahTime` is set; nil otherwise.
+    func formattedCountdownToIqamah(now: Date = Date()) -> String? {
+        guard let iq = iqamahTime else { return nil }
+        return Self.formatCountdownInterval(max(0, iq.timeIntervalSince(now)))
+    }
+
+    /// Synthetic menu-bar entry uses id suffix `menuIqamah` while counting down to congregation time.
+    var isMenuBarIqamahPhase: Bool {
+        id.hasSuffix("-menuIqamah")
+    }
+
+    static func formatCountdownInterval(_ remaining: TimeInterval) -> String {
         let hours = Int(remaining) / 3600
         let minutes = (Int(remaining) % 3600) / 60
         let seconds = Int(remaining) % 60
-
         if hours > 0 {
             return String(format: "%d:%02d:%02d", hours, minutes, seconds)
-        } else {
-            return String(format: "%d:%02d", minutes, seconds)
         }
+        return String(format: "%d:%02d", minutes, seconds)
     }
 
     private static let timeFormatter: DateFormatter = {

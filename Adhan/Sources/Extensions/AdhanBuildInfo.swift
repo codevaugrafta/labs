@@ -27,4 +27,19 @@ enum AdhanBuildInfo {
     static var runKindMenuLabel: String {
         isLikelySwiftPMOrDebugRun ? "debug / swift run" : "Adhan.app"
     }
+
+    /// Shown in Settings (About) so users know whether they are on a packaged app vs debug run.
+    static var userFacingInstallHint: String {
+        if isLikelySwiftPMOrDebugRun {
+            """
+            This copy is running from a build/debug path (e.g. swift run or Xcode), not the packaged app.
+
+            Quit this instance, then open:
+            • /Applications/Adhan.app, or
+            • Adhan/build/Adhan.app after ./build-app.sh
+            """
+        } else {
+            "This copy is running from an .app bundle (expected for daily use)."
+        }
+    }
 }

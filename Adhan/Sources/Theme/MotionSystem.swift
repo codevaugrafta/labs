@@ -1,26 +1,21 @@
 import SwiftUI
 import AppKit
 
-// MARK: - Theme-Aware Spring Animation
+// MARK: - Theme-Aware Animation
 
 extension View {
-    func adhanSpring() -> some View {
-        let theme = AdhanThemeManager.shared.current
-        return self.animation(
-            .spring(response: theme.springResponse, dampingFraction: theme.springDamping),
-            value: UUID()
+    /// Animates when `value` changes using the active theme’s spring parameters.
+    func adhanSpring<V: Equatable>(value: V) -> some View {
+        let t = AdhanThemeManager.shared
+        return animation(
+            .spring(response: t.springResponse, dampingFraction: t.springDamping),
+            value: value
         )
     }
 
-    func adhanTransition() -> some View {
-        let theme = AdhanThemeManager.shared.current
-        return self.transition(
-            .asymmetric(
-                insertion: .scale(scale: 0.95).combined(with: .opacity),
-                removal: .scale(scale: 0.98).combined(with: .opacity)
-            )
-        )
-        .animation(.easeInOut(duration: theme.transitionDuration), value: UUID())
+    func adhanEaseTransition<V: Equatable>(value: V) -> some View {
+        let duration = AdhanThemeManager.shared.current.transitionDuration
+        return animation(.easeInOut(duration: duration), value: value)
     }
 }
 
@@ -82,21 +77,6 @@ extension View {
     }
 }
 
-// MARK: - Crescent Moon Phase Animation
-
-struct MoonPhaseModifier: ViewModifier {
-    @State private var phase: CGFloat = 0.3
-
-    func body(content: Content) -> some View {
-        content
-            .onAppear {
-                withAnimation(.easeInOut(duration: 8).repeatForever(autoreverses: true)) {
-                    phase = 0.6
-                }
-            }
-    }
-}
-
 // MARK: - Haptic + Sound Helpers
 
 enum AdhanFeedback {
@@ -108,5 +88,21 @@ enum AdhanFeedback {
     @MainActor
     static func onThemeChange() {
         AdhanThemeManager.shared.playTransitionFeedback()
+    }
+
+    /// Short haptic + system “Pop” for successful button actions (macOS trackpad haptics where available).
+    @MainActor
+    static func onUIAction() {
+        NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .default)
+        if let pop = NSSound(named: "Pop") {
+            pop.stop()
+            pop.play()
+        }
+    }
+
+    /// Haptic only — used when the floating panel appears (avoid stacking with Adhan audio).
+    @MainActor
+    static func onPanelReveal() {
+        NSHapticFeedbackManager.defaultPerformer.perform(.levelChange, performanceTime: .default)
     }
 }

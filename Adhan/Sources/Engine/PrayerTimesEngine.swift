@@ -254,6 +254,48 @@ final class PrayerTimesEngine {
         }
     }
 
+    // MARK: - Menu bar countdown (Iqamah vs next begin)
+
+    /// Entry that drives the **menu bar** title and “next” row styling. When mosque Iqamah exists and Adhan has passed, counts down to Iqamah before advancing to the next prayer’s begin (unless `AppSettings.menuBarSkipsIqamahCountdown()`).
+    func menuBarCountdownEntry() -> PrayerTimeEntry? {
+        Self.menuBarCountdownEntry(
+            todayEntries: todayEntries,
+            nextPrayer: nextPrayer,
+            skipIqamahCountdown: AppSettings.menuBarSkipsIqamahCountdown(),
+            now: Date()
+        )
+    }
+
+    /// Pure logic for tests and menu bar; not isolated so it can run from any context.
+    nonisolated static func menuBarCountdownEntry(
+        todayEntries: [PrayerTimeEntry],
+        nextPrayer: PrayerTimeEntry?,
+        skipIqamahCountdown: Bool,
+        now: Date
+    ) -> PrayerTimeEntry? {
+        if skipIqamahCountdown { return nextPrayer }
+        if let pseudo = pseudoIqamahMenuEntry(from: todayEntries, now: now) {
+            return pseudo
+        }
+        return nextPrayer
+    }
+
+    /// Between Adhan and Iqamah: if several prayers qualify (bad/overlapping data), prefer **soonest Iqamah** so the menu bar shows the nearest congregation.
+    nonisolated static func pseudoIqamahMenuEntry(from entries: [PrayerTimeEntry], now: Date) -> PrayerTimeEntry? {
+        let eligible = entries.filter { entry in
+            guard entry.prayer != .sunrise else { return false }
+            guard let iq = entry.iqamahTime else { return false }
+            return entry.adhanTime <= now && now < iq
+        }
+        guard let best = eligible.min(by: { a, b in
+            guard let ia = a.iqamahTime, let ib = b.iqamahTime else { return false }
+            if ia != ib { return ia < ib }
+            return a.adhanTime < b.adhanTime
+        }),
+            let iq = best.iqamahTime else { return nil }
+        return PrayerTimeEntry(prayer: best.prayer, adhanTime: iq, iqamahTime: nil, idSuffix: "menuIqamah")
+    }
+
     private static func tomorrowFajrDate(
         coordinates: Coordinates,
         calendar: Calendar,

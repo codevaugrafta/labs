@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import SwiftUI
 
 @MainActor
@@ -32,7 +33,20 @@ final class FloatingPrayerPanel {
             let sf = screen.visibleFrame
             panel.setFrameOrigin(NSPoint(x: sf.maxX - 370, y: sf.midY - 210))
         }
-        panel.orderFront(nil)
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        if reduceMotion {
+            panel.alphaValue = 1
+            panel.orderFront(nil)
+        } else {
+            panel.alphaValue = 0
+            panel.orderFront(nil)
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.32
+                context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                panel.animator().alphaValue = 1
+            }
+        }
+        AdhanFeedback.onPanelReveal()
         self.panel = panel
     }
 

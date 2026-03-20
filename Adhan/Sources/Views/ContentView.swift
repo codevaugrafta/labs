@@ -2,7 +2,9 @@ import SwiftUI
 
 struct ContentView: View {
     @Environment(PrayerTimesEngine.self) private var engine
+    @Environment(\.accessibilityReduceMotion) private var accessibilityReduceMotion
     @AppStorage(AppSettings.mainWindowTextSizeKey) private var textSizeTier: Int = 1
+    @Bindable private var themeManager = AdhanThemeManager.shared
 
     var body: some View {
         VStack(spacing: 0) {
@@ -10,6 +12,7 @@ struct ContentView: View {
             headerSection
 
             Divider()
+                .transition(.opacity)
 
             // Scrollable prayer list — grows to fill available space
             ScrollView(.vertical, showsIndicators: false) {
@@ -26,8 +29,28 @@ struct ContentView: View {
             minWidth: 400, idealWidth: 480, maxWidth: .infinity,
             minHeight: 540, idealHeight: 640, maxHeight: .infinity
         )
-        .background(Color(.windowBackgroundColor))
+        .background(mainWindowBackground)
         .environment(\.dynamicTypeSize, mainWindowDynamicTypeSize)
+        .adhanSpring(value: engine.nextPrayer?.id)
+        .adhanSpring(value: themeManager.themeVersion)
+    }
+
+    private var mainWindowBackground: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color(.windowBackgroundColor),
+                    themeManager.accent.opacity(0.07),
+                    Color(.windowBackgroundColor),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            if themeManager.showsGeometricPattern {
+                GeometricPattern(theme: themeManager.current, tileSize: 56, appliesThemeOpacity: false)
+                    .opacity(min(themeManager.patternOpacity * 2.0, 0.10))
+            }
+        }
     }
 
     private var mainWindowDynamicTypeSize: DynamicTypeSize {
@@ -61,19 +84,25 @@ struct ContentView: View {
 
     private var headerSection: some View {
         VStack(spacing: 8) {
+            AdhanBrandHeader(markSize: 46)
+
             // Hijri date
             HStack {
-                Image(systemName: "moon.fill")
-                    .foregroundStyle(.secondary)
+                Image(systemName: "moon.stars.fill")
+                    .foregroundStyle(themeManager.accent.opacity(0.85))
+                    .symbolEffect(.pulse, options: .repeating.speed(0.35), isActive: !accessibilityReduceMotion)
                 Text(engine.hijriEngine.hijriDateString)
                     .font(.headline)
+                    .contentTransition(.interpolate)
                 Spacer()
                 Text(engine.locationName)
                     .font(.caption)
                     .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.trailing)
             }
             .padding(.horizontal)
-            .padding(.top, 16)
+            .padding(.top, 4)
+            .adhanEaseTransition(value: engine.hijriEngine.hijriDateString)
 
             // Friday / Ramadan banners
             if engine.isFriday {
@@ -92,9 +121,14 @@ struct ContentView: View {
                 .padding(.vertical, 6)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
-                        .fill(Color(red: 0.85, green: 0.68, blue: 0.35).opacity(0.1))
+                        .fill(themeManager.accentSecondary.opacity(0.14))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(themeManager.accentSecondary.opacity(0.25), lineWidth: 0.5)
                 )
                 .padding(.horizontal)
+                .transition(.move(edge: .top).combined(with: .opacity))
             }
 
             if engine.isRamadan {
@@ -111,9 +145,14 @@ struct ContentView: View {
                 .padding(.vertical, 6)
                 .background(
                     RoundedRectangle(cornerRadius: 8)
-                        .fill(Color(red: 0.90, green: 0.72, blue: 0.30).opacity(0.1))
+                        .fill(themeManager.accent.opacity(0.12))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 8)
+                        .strokeBorder(themeManager.accent.opacity(0.22), lineWidth: 0.5)
                 )
                 .padding(.horizontal)
+                .transition(.move(edge: .top).combined(with: .opacity))
             }
 
             // Next prayer countdown
@@ -123,6 +162,7 @@ struct ContentView: View {
                         .font(.system(size: 28))
                         .foregroundStyle(prayerColor(next.prayer))
                         .frame(width: 40)
+                        .symbolEffect(.variableColor.iterative, options: .repeating.speed(0.8), isActive: !accessibilityReduceMotion)
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(next.isNextDayPreview ? "Next (tomorrow)" : "Next Prayer")
@@ -130,6 +170,7 @@ struct ContentView: View {
                             .foregroundStyle(.secondary)
                         Text(next.prayer.displayName)
                             .font(.title2.bold())
+                            .contentTransition(.interpolate)
                     }
 
                     Spacer()
@@ -137,9 +178,11 @@ struct ContentView: View {
                     VStack(alignment: .trailing, spacing: 2) {
                         Text(next.formattedBeginTime)
                             .font(.system(.title3, design: .monospaced))
+                            .contentTransition(.numericText())
                         Text("in \(next.formattedCountdown)")
                             .font(.system(.caption, design: .monospaced))
                             .foregroundStyle(.secondary)
+                            .contentTransition(.numericText())
                         if let iq = next.formattedIqamahTime {
                             Text("Iqamah \(iq)")
                                 .font(.system(.caption2, design: .monospaced))
@@ -153,13 +196,19 @@ struct ContentView: View {
                         .fill(prayerColor(next.prayer).opacity(0.08))
                         .overlay(
                             RoundedRectangle(cornerRadius: 12)
-                                .strokeBorder(prayerColor(next.prayer).opacity(0.2), lineWidth: 1)
+                                .strokeBorder(prayerColor(next.prayer).opacity(0.28), lineWidth: 1)
                         )
                 )
                 .padding(.horizontal)
+                .transition(.asymmetric(
+                    insertion: .scale(scale: 0.96).combined(with: .opacity),
+                    removal: .opacity
+                ))
             }
         }
         .padding(.bottom, 8)
+        .animation(.spring(response: themeManager.springResponse, dampingFraction: themeManager.springDamping), value: engine.isFriday)
+        .animation(.spring(response: themeManager.springResponse, dampingFraction: themeManager.springDamping), value: engine.isRamadan)
     }
 
     // MARK: - Prayer List
@@ -193,6 +242,7 @@ struct ContentView: View {
 
             ForEach(engine.todayEntries) { entry in
                 prayerRow(entry)
+                    .transition(.opacity.combined(with: .move(edge: .leading)))
                 if entry.prayer != .isha {
                     Divider().padding(.leading)
                 }
@@ -238,6 +288,8 @@ struct ContentView: View {
                     Text("in \(entry.formattedCountdown)")
                         .font(.system(size: 11 * listFontScale, design: .monospaced))
                         .foregroundStyle(prayerColor(entry.prayer))
+                        .contentTransition(.numericText())
+                        .animation(.snappy, value: entry.formattedCountdown)
                 }
             }
             .frame(width: timeColumnWidth, alignment: .trailing)
@@ -253,6 +305,7 @@ struct ContentView: View {
         .padding(.horizontal)
         .padding(.vertical, 10)
         .background(isNext ? prayerColor(entry.prayer).opacity(0.06) : .clear)
+        .adhanSpring(value: isNext)
     }
 
     // MARK: - Footer
@@ -280,6 +333,7 @@ struct ContentView: View {
                     .foregroundStyle(.quaternary)
                 Spacer()
                 Button("Recalculate") {
+                    AdhanFeedback.onUIAction()
                     engine.recalculate()
                 }
                 .font(.caption2)
@@ -295,14 +349,7 @@ struct ContentView: View {
     // MARK: - Helpers
 
     private func prayerColor(_ prayer: PrayerName) -> Color {
-        switch prayer {
-        case .fajr:    return Color(red: 0.2, green: 0.4, blue: 0.7)   // Dawn blue
-        case .sunrise: return Color(red: 0.95, green: 0.6, blue: 0.2)  // Orange
-        case .dhuhr:   return Color(red: 0.85, green: 0.65, blue: 0.1) // Gold
-        case .asr:     return Color(red: 0.7, green: 0.5, blue: 0.2)   // Warm brown
-        case .maghrib: return Color(red: 0.8, green: 0.3, blue: 0.2)   // Sunset red
-        case .isha:    return Color(red: 0.3, green: 0.2, blue: 0.5)   // Night purple
-        }
+        themeManager.color(for: prayer)
     }
 
     private var currentMethodName: String {

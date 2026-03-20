@@ -71,6 +71,8 @@ struct CrescentMoon: Shape {
 struct GeometricPattern: View {
     let theme: any AdhanTheme
     var tileSize: CGFloat = 60
+    /// When false, opacity is left to the caller (avoids stacking with an outer opacity).
+    var appliesThemeOpacity: Bool = true
 
     var body: some View {
         Canvas { context, size in
@@ -100,7 +102,7 @@ struct GeometricPattern: View {
                 }
             }
         }
-        .opacity(theme.patternOpacity)
+        .opacity(appliesThemeOpacity ? theme.patternOpacity : 1)
         .allowsHitTesting(false)
     }
 }
@@ -112,7 +114,7 @@ extension View {
         let tm = AdhanThemeManager.shared
         return self.overlay {
             if tm.showsGeometricPattern {
-                GeometricPattern(theme: tm.current)
+                GeometricPattern(theme: tm.current, appliesThemeOpacity: true)
                     .clipped()
             }
         }

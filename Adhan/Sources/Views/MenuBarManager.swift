@@ -3,7 +3,7 @@ import SwiftUI
 import Combine
 
 @MainActor
-final class MenuBarManager {
+final class MenuBarManager: NSObject {
     private var statusItem: NSStatusItem?
     private var timer: AnyCancellable?
     private weak var engine: PrayerTimesEngine?
@@ -19,11 +19,21 @@ final class MenuBarManager {
         openSettingsFromSwiftUI = action
     }
 
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
     func setup(engine: PrayerTimesEngine, floatingPanel: FloatingPrayerPanel? = nil, adhanPlayer: AdhanPlayer? = nil) {
         self.engine = engine
         self.floatingPanel = floatingPanel
         self.adhanPlayer = adhanPlayer
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleMenuBarNeedsRebuildNotification),
+            name: .adhanMenuBarNeedsRebuild,
+            object: nil
+        )
         applyStatusButtonToolTip()
         updateStatusItem()
         buildMenu()
@@ -36,7 +46,53 @@ final class MenuBarManager {
             }
     }
 
+    @objc private func handleMenuBarNeedsRebuildNotification() {
+        // Selector-based observers run on the posting thread; AppKit menu work must be main-thread.
+        Task { @MainActor in
+            self.buildMenu()
+            self.applyStatusButtonToolTip()
+        }
+    }
+
     // MARK: - Status Item Update
+
+    /// Menu bar uses `menuBarCountdownEntry()` so after Adhan it can count down to **Iqamah** before the next begin time.
+    private func menuBarRowMatchesFocus(_ entry: PrayerTimeEntry, focus: PrayerTimeEntry?) -> Bool {
+        guard let focus else { return false }
+        if focus.isMenuBarIqamahPhase {
+            return entry.prayer == focus.prayer && !entry.isNextDayPreview
+        }
+        return entry.id == focus.id
+    }
+
+    private func menuBarStatusButtonTitle(focus: PrayerTimeEntry, mode: MenuBarDisplayMode) -> String {
+        let label: String = {
+            if focus.isNextDayPreview { return "\(focus.prayer.displayName) (tmrw)" }
+            return focus.prayer.displayName
+        }()
+        switch mode {
+        case .countdown:
+            if focus.isMenuBarIqamahPhase {
+                return " \(label) Iqamah in \(focus.formattedCountdown)"
+            }
+            return " \(label) in \(focus.formattedCountdown)"
+        case .exactTime:
+            if focus.isMenuBarIqamahPhase {
+                return " \(label) Iqamah \(focus.formattedBeginTime)"
+            }
+            return " \(label) \(focus.formattedBeginTime)"
+        case .iconOnly:
+            return ""
+        }
+    }
+
+    /// Countdown shown in the highlighted timetable row (Iqamah phase → time until congregation).
+    private func menuBarRowCountdownLabel(entry: PrayerTimeEntry, focus: PrayerTimeEntry?) -> String {
+        if menuBarRowMatchesFocus(entry, focus: focus), let toIqamah = entry.formattedCountdownToIqamah() {
+            return toIqamah
+        }
+        return entry.formattedCountdown
+    }
 
     private func updateStatusItem() {
         guard let statusItem, let engine else { return }
@@ -46,21 +102,12 @@ final class MenuBarManager {
             rawValue: UserDefaults.standard.integer(forKey: AppSettings.menuBarDisplayModeKey)
         ) ?? .countdown
 
-        switch displayMode {
-        case .countdown:
-            if let next = engine.nextPrayer {
-                let label = next.isNextDayPreview ? "\(next.prayer.displayName) (tmrw)" : next.prayer.displayName
-                button?.title = " \(label) in \(next.formattedCountdown)"
-                setCrescentIcon(button)
-            } else {
-                button?.title = ""
-                setCrescentIcon(button)
-            }
+        let focus = engine.menuBarCountdownEntry()
 
-        case .exactTime:
-            if let next = engine.nextPrayer {
-                let label = next.isNextDayPreview ? "\(next.prayer.displayName) (tmrw)" : next.prayer.displayName
-                button?.title = " \(label) \(next.formattedBeginTime)"
+        switch displayMode {
+        case .countdown, .exactTime:
+            if let focus {
+                button?.title = menuBarStatusButtonTitle(focus: focus, mode: displayMode)
                 setCrescentIcon(button)
             } else {
                 button?.title = ""
@@ -74,11 +121,11 @@ final class MenuBarManager {
 
         applyStatusButtonToolTip()
 
-        // Rebuild menu when next prayer or playback changes (Stop Adhan enabled state, labels).
-        let currentNextId = engine.nextPrayer?.id
+        // Rebuild menu when menu-bar focus or playback changes (Stop Adhan enabled state, labels).
+        let currentFocusId = focus?.id
         let playing = adhanPlayer?.isPlaying ?? false
-        if currentNextId != lastNextPrayerId || playing != lastAdhanPlaying {
-            lastNextPrayerId = currentNextId
+        if currentFocusId != lastNextPrayerId || playing != lastAdhanPlaying {
+            lastNextPrayerId = currentFocusId
             lastAdhanPlaying = playing
             buildMenu()
         }
@@ -92,8 +139,7 @@ final class MenuBarManager {
     }
 
     private func applyStatusButtonToolTip() {
-        statusItem?.button?.toolTip =
-            "Adhan \(AdhanBuildInfo.versionSummary) — \(AdhanBuildInfo.runKindMenuLabel). Hover menu first row to verify."
+        statusItem?.button?.toolTip = "Adhan — click for menu and actions. Version is in Settings → General."
     }
 
     // MARK: - Menu Construction
@@ -103,32 +149,35 @@ final class MenuBarManager {
         let menu = NSMenu()
         menu.autoenablesItems = false
 
-        // ── Build identity (so you can see .app vs swift run at a glance)
-        let buildTitle = "Adhan \(AdhanBuildInfo.versionSummary) — \(AdhanBuildInfo.runKindMenuLabel)"
-        let buildRow = NSMenuItem(title: buildTitle, action: #selector(showAdhanBuildInfo(_:)), keyEquivalent: "")
-        buildRow.target = self
-        buildRow.isEnabled = true
-        buildRow.toolTip = "Click for build details (bundle path). Use Adhan.app from /Applications or build/ for release behavior."
-        menu.addItem(buildRow)
+        func appendSeparatorIfNeeded() {
+            guard let last = menu.items.last, !last.isSeparatorItem else { return }
+            menu.addItem(.separator())
+        }
 
-        menu.addItem(.separator())
+        let showHijri = AppSettings.menuBarShowsHijriDate()
+        let showLocation = AppSettings.menuBarShowsLocation()
+        let showTimetable = AppSettings.menuBarShowsPrayerTimetable()
 
-        // ── Hijri Date / location (click = copy — avoids “dead” menu affordance)
-        let hijriItem = NSMenuItem(title: "\u{263D} \(engine.hijriEngine.hijriDateString)", action: #selector(copyMenuItemTitle(_:)), keyEquivalent: "")
-        hijriItem.target = self
-        hijriItem.isEnabled = true
-        hijriItem.toolTip = "Copy Hijri date to clipboard"
-        menu.addItem(hijriItem)
+        // ── Hijri / location (optional; copy to clipboard)
+        if showHijri {
+            let hijriItem = NSMenuItem(title: "\u{263D} \(engine.hijriEngine.hijriDateString)", action: #selector(copyMenuItemTitle(_:)), keyEquivalent: "")
+            hijriItem.target = self
+            hijriItem.isEnabled = true
+            hijriItem.toolTip = "Copy Hijri date to clipboard"
+            menu.addItem(hijriItem)
+        }
+        if showLocation {
+            let locationItem = NSMenuItem(title: "\u{1F4CD} \(engine.locationName)", action: #selector(copyMenuItemTitle(_:)), keyEquivalent: "")
+            locationItem.target = self
+            locationItem.isEnabled = true
+            locationItem.toolTip = "Copy location name to clipboard"
+            menu.addItem(locationItem)
+        }
+        if showHijri || showLocation {
+            appendSeparatorIfNeeded()
+        }
 
-        let locationItem = NSMenuItem(title: "\u{1F4CD} \(engine.locationName)", action: #selector(copyMenuItemTitle(_:)), keyEquivalent: "")
-        locationItem.target = self
-        locationItem.isEnabled = true
-        locationItem.toolTip = "Copy location name to clipboard"
-        menu.addItem(locationItem)
-
-        menu.addItem(.separator())
-
-        // ── Stop playback (discoverable; same as app menu ⌘⇧S) ──
+        // ── Stop playback (⌘⇧S) ──
         let stopItem = NSMenuItem(
             title: "Stop Adhan Playback",
             action: #selector(stopAdhanPlayback),
@@ -140,72 +189,83 @@ final class MenuBarManager {
         stopItem.toolTip = "Stops Adhan, preview, or pre-reminder chime (⌘⇧S)."
         menu.addItem(stopItem)
 
-        menu.addItem(.separator())
-
-        // ── Prayer Times ──
+        // ── Prayer timetable (optional) ──
         let timetableMenuInsertIndex = menu.items.count
-        for entry in engine.todayEntries {
-            let isNext = entry.id == engine.nextPrayer?.id
+        if showTimetable {
+            appendSeparatorIfNeeded()
 
-            if isNext {
-                let plainTitle = "\(entry.prayer.displayName)  \(entry.formattedBeginTime)  (in \(entry.formattedCountdown))"
-                let item = NSMenuItem(title: plainTitle, action: #selector(copyPrayerRow(_:)), keyEquivalent: "")
-                item.target = self
-                item.representedObject = Self.rowPayload(for: entry)
-                item.attributedTitle = highlightedAttributedString(
-                    title: entry.prayer.displayName,
-                    time: entry.formattedBeginTime,
-                    countdown: entry.formattedCountdown,
-                    iqamah: entry.formattedIqamahTime
+            let menuFocus = engine.menuBarCountdownEntry()
+
+            for entry in engine.todayEntries {
+                let isNext = menuBarRowMatchesFocus(entry, focus: menuFocus)
+                let rowCountdown = menuBarRowCountdownLabel(entry: entry, focus: menuFocus)
+
+                if isNext {
+                    let plainTitle = "\(entry.prayer.displayName)  \(entry.formattedBeginTime)  (in \(rowCountdown))"
+                    let item = NSMenuItem(title: plainTitle, action: #selector(copyPrayerRow(_:)), keyEquivalent: "")
+                    item.target = self
+                    item.representedObject = Self.rowPayload(for: entry)
+                    item.attributedTitle = highlightedAttributedString(
+                        title: entry.prayer.displayName,
+                        time: entry.formattedBeginTime,
+                        countdown: rowCountdown,
+                        iqamah: entry.formattedIqamahTime
+                    )
+                    item.isEnabled = true
+                    item.toolTip = Self.rowToolTip(for: entry)
+                    menu.addItem(item)
+                } else {
+                    let isPassed = entry.hasPassed
+                    let check = isPassed ? "\u{2713}" : " "
+                    let iqamahStr = entry.formattedIqamahTime.map { "  Iqamah \($0)" } ?? ""
+                    let title = " \(check)  \(entry.prayer.displayName.padding(toLength: 10, withPad: " ", startingAt: 0))\(entry.formattedBeginTime)\(iqamahStr)"
+                    let item = NSMenuItem(title: title, action: #selector(copyPrayerRow(_:)), keyEquivalent: "")
+                    item.target = self
+                    item.representedObject = Self.rowPayload(for: entry)
+                    item.isEnabled = true
+                    item.toolTip = Self.rowToolTip(for: entry)
+                    menu.addItem(item)
+                }
+            }
+
+            // Explicit preview — prayer rows are copy-only; target skips sunrise when it is “next”.
+            if let previewTarget = previewEntry(for: engine) {
+                let preview = NSMenuItem(
+                    title: "Preview Adhan — \(previewTarget.prayer.displayName)",
+                    action: #selector(previewAdhanForNextPrayer),
+                    keyEquivalent: ""
                 )
-                item.isEnabled = true
-                item.toolTip = Self.rowToolTip(for: entry)
-                menu.addItem(item)
-            } else {
-                let isPassed = entry.hasPassed
-                let check = isPassed ? "\u{2713}" : " "
-                let iqamahStr = entry.formattedIqamahTime.map { "  Iqamah \($0)" } ?? ""
-                let title = " \(check)  \(entry.prayer.displayName.padding(toLength: 10, withPad: " ", startingAt: 0))\(entry.formattedBeginTime)\(iqamahStr)"
-                let item = NSMenuItem(title: title, action: #selector(copyPrayerRow(_:)), keyEquivalent: "")
-                item.target = self
-                item.representedObject = Self.rowPayload(for: entry)
-                item.isEnabled = true
-                item.toolTip = Self.rowToolTip(for: entry)
-                menu.addItem(item)
+                preview.target = self
+                preview.isEnabled = adhanPlayer != nil
+                preview.toolTip = "Plays the Adhan sample for this prayer (from Settings recitation)."
+                menu.addItem(preview)
+            }
+
+            if menu.items.count > timetableMenuInsertIndex {
+                appendSeparatorIfNeeded()
+            }
+
+            // ── Next Prayer summary (only with timetable section) ──
+            if let focus = engine.menuBarCountdownEntry() {
+                let nameLabel = focus.isNextDayPreview ? "\(focus.prayer.displayName) tomorrow" : focus.prayer.displayName
+                let (heading, detail): (String, String) = focus.isMenuBarIqamahPhase
+                    ? ("Iqamah", "\(nameLabel) in \(focus.formattedCountdown)")
+                    : ("Next", "\(nameLabel) in \(focus.formattedCountdown)")
+                let countdownItem = NSMenuItem(
+                    title: "\(heading): \(detail)",
+                    action: #selector(copyMenuItemTitle(_:)),
+                    keyEquivalent: ""
+                )
+                countdownItem.target = self
+                countdownItem.isEnabled = true
+                countdownItem.toolTip = focus.isMenuBarIqamahPhase
+                    ? "Copy menu bar countdown summary (Iqamah phase)"
+                    : "Copy next-prayer summary to clipboard"
+                menu.addItem(countdownItem)
             }
         }
 
-        // Explicit preview — prayer rows are copy-only; target skips sunrise when it is “next”.
-        if let previewTarget = previewEntry(for: engine) {
-            let preview = NSMenuItem(
-                title: "Preview Adhan — \(previewTarget.prayer.displayName)",
-                action: #selector(previewAdhanForNextPrayer),
-                keyEquivalent: ""
-            )
-            preview.target = self
-            preview.isEnabled = adhanPlayer != nil
-            preview.toolTip = "Plays the Adhan sample for this prayer (from Settings recitation)."
-            menu.addItem(preview)
-        }
-
-        if menu.items.count > timetableMenuInsertIndex {
-            menu.addItem(.separator())
-        }
-
-        // ── Next Prayer ──
-        if let next = engine.nextPrayer {
-            let nextLabel = next.isNextDayPreview ? "\(next.prayer.displayName) tomorrow" : next.prayer.displayName
-            let countdownItem = NSMenuItem(
-                title: "Next: \(nextLabel) in \(next.formattedCountdown)",
-                action: #selector(copyMenuItemTitle(_:)),
-                keyEquivalent: ""
-            )
-            countdownItem.target = self
-            countdownItem.isEnabled = true
-            countdownItem.toolTip = "Copy next-prayer summary to clipboard"
-            menu.addItem(countdownItem)
-            menu.addItem(.separator())
-        }
+        appendSeparatorIfNeeded()
 
         // ── Floating Panel ──
         let floatingTitle = (floatingPanel?.isVisible ?? false) ? "Hide Floating Panel" : "Show Floating Panel"
@@ -242,7 +302,7 @@ final class MenuBarManager {
         displaySubmenu.submenu = displayMenu
         menu.addItem(displaySubmenu)
 
-        menu.addItem(.separator())
+        appendSeparatorIfNeeded()
 
         let showWindowItem = NSMenuItem(title: "Show Main Window", action: #selector(showMainWindow), keyEquivalent: "o")
         showWindowItem.keyEquivalentModifierMask = .command
@@ -328,35 +388,6 @@ final class MenuBarManager {
     }
 
     // MARK: - Actions
-
-    @objc private func showAdhanBuildInfo(_ sender: NSMenuItem?) {
-        let alert = NSAlert()
-        alert.messageText = "Adhan \(AdhanBuildInfo.versionSummary)"
-        let exe = Bundle.main.executablePath ?? "(unknown)"
-        let hint: String
-        if AdhanBuildInfo.isLikelySwiftPMOrDebugRun {
-            hint = """
-            This copy is running from a build/debug path (e.g. swift run or Xcode), not the packaged app.
-
-            Quit this instance, then open:
-            • /Applications/Adhan.app, or
-            • Adhan/build/Adhan.app after ./build-app.sh
-            """
-        } else {
-            hint = "This copy is running from an .app bundle (expected for daily use)."
-        }
-        alert.informativeText = """
-        \(hint)
-
-        Bundle:
-        \(AdhanBuildInfo.bundlePath)
-
-        Executable:
-        \(exe)
-        """
-        alert.alertStyle = .informational
-        alert.runModal()
-    }
 
     @objc private func copyMenuItemTitle(_ sender: NSMenuItem) {
         let text = sender.title

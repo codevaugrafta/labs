@@ -2,6 +2,7 @@ import SwiftUI
 import ServiceManagement
 import UserNotifications
 import AppKit
+import Foundation
 
 struct SettingsView: View {
     @Environment(PrayerTimesEngine.self) private var engine
@@ -323,13 +324,53 @@ struct SettingsView: View {
                     get: {
                         MenuBarDisplayMode(rawValue: UserDefaults.standard.integer(forKey: AppSettings.menuBarDisplayModeKey)) ?? .countdown
                     },
-                    set: {
-                        UserDefaults.standard.set($0.rawValue, forKey: AppSettings.menuBarDisplayModeKey)
+                    set: { mode in
+                        UserDefaults.standard.set(mode.rawValue, forKey: AppSettings.menuBarDisplayModeKey)
+                        NotificationCenter.default.post(name: .adhanMenuBarNeedsRebuild, object: nil)
                     }
                 )) {
                     ForEach(MenuBarDisplayMode.allCases, id: \.rawValue) { mode in
                         Text(mode.label).tag(mode)
                     }
+                }
+
+                Toggle("Show Hijri date in menu", isOn: menuBarShowHijriDateBinding)
+                Toggle("Show location in menu", isOn: menuBarShowLocationBinding)
+                Toggle("Show prayer timetable in menu", isOn: menuBarShowPrayerTimetableBinding)
+
+                Toggle("After Adhan, jump to next prayer (skip Iqamah countdown)", isOn: menuBarSkipIqamahCountdownBinding)
+                Text("Default: when mosque times include Iqamah, the menu bar counts down to Iqamah after Adhan, then to the next prayer. Turn on for the previous behavior (always the next begin time).")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                Text("Turn off rows above to reduce clutter in the menu bar dropdown. The main window is unchanged.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section("About") {
+                LabeledContent("Version") {
+                    Text(AdhanBuildInfo.versionSummary)
+                        .textSelection(.enabled)
+                }
+                LabeledContent("Run kind") {
+                    Text(AdhanBuildInfo.runKindMenuLabel)
+                        .foregroundStyle(.secondary)
+                }
+                Text(AdhanBuildInfo.userFacingInstallHint)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                LabeledContent("Bundle") {
+                    Text(AdhanBuildInfo.bundlePath)
+                        .font(.caption)
+                        .textSelection(.enabled)
+                        .lineLimit(3)
+                }
+                LabeledContent("Executable") {
+                    Text(Bundle.main.executablePath ?? "(unknown)")
+                        .font(.caption)
+                        .textSelection(.enabled)
+                        .lineLimit(2)
                 }
             }
 
@@ -371,6 +412,46 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+    }
+
+    private var menuBarShowHijriDateBinding: Binding<Bool> {
+        Binding(
+            get: { AppSettings.menuBarShowsHijriDate() },
+            set: { newValue in
+                UserDefaults.standard.set(newValue, forKey: AppSettings.menuBarShowHijriDateKey)
+                NotificationCenter.default.post(name: .adhanMenuBarNeedsRebuild, object: nil)
+            }
+        )
+    }
+
+    private var menuBarShowLocationBinding: Binding<Bool> {
+        Binding(
+            get: { AppSettings.menuBarShowsLocation() },
+            set: { newValue in
+                UserDefaults.standard.set(newValue, forKey: AppSettings.menuBarShowLocationKey)
+                NotificationCenter.default.post(name: .adhanMenuBarNeedsRebuild, object: nil)
+            }
+        )
+    }
+
+    private var menuBarShowPrayerTimetableBinding: Binding<Bool> {
+        Binding(
+            get: { AppSettings.menuBarShowsPrayerTimetable() },
+            set: { newValue in
+                UserDefaults.standard.set(newValue, forKey: AppSettings.menuBarShowPrayerTimetableKey)
+                NotificationCenter.default.post(name: .adhanMenuBarNeedsRebuild, object: nil)
+            }
+        )
+    }
+
+    private var menuBarSkipIqamahCountdownBinding: Binding<Bool> {
+        Binding(
+            get: { AppSettings.menuBarSkipsIqamahCountdown() },
+            set: { newValue in
+                UserDefaults.standard.set(newValue, forKey: AppSettings.menuBarSkipIqamahCountdownKey)
+                NotificationCenter.default.post(name: .adhanMenuBarNeedsRebuild, object: nil)
+            }
+        )
     }
 
     @MainActor

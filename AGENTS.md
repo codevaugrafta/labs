@@ -19,7 +19,7 @@ This file is read by both Cursor and Claude Code agents.
 ### Adhan (macOS Prayer Times)
 - **Path**: `Adhan/`
 - **Stack**: Swift 6.2+ (swift-tools-version 6.2), SwiftUI, SwiftData, adhan-swift (pinned revision), AVFoundation, UserNotifications
-- **Tests**: `cd Adhan && swift test` — 16 tests (PrayerTimesEngine, PrayerTimeEntry + Iqamah, Hijri, mosque URL, recitation fallback)
+- **Tests**: `cd Adhan && swift test` — 24 tests (PrayerTimesEngine, PrayerTimeEntry + Iqamah, Hijri, mosque URL, recitation fallback, menu bar / AppSettings)
 - **Build app**: `cd Adhan && ./build-app.sh` → `build/Adhan.app` (release)
 - **Logs**: Console filter `subsystem:com.adhan.prayer-times`
 - **“Update Swift + app” (Adhan only — not Tiempo)**:
