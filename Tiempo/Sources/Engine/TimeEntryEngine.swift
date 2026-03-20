@@ -1,6 +1,11 @@
 import Foundation
 import SwiftData
 import Observation
+import OSLog
+
+private extension Logger {
+    static let data = Logger(subsystem: "com.franciscodilussor.tiempo", category: "data")
+}
 
 @MainActor
 @Observable
@@ -65,14 +70,18 @@ final class TimeEntryEngine {
     func startTimer(for category: Category) {
         guard let modelContext else { return }
 
+        // Atomic stop+start: stop previous, create new, single save
         if !allowConcurrentTimers, let running = activeEntry {
-            stopTimer(running)
+            running.endedAt = Date()
+            running.isRunning = false
+            running.updatedAt = Date()
+            if running.id == activeEntry?.id { activeEntry = nil }
         }
 
         let entry = TimeEntry(category: category)
         modelContext.insert(entry)
         activeEntry = entry
-        save()
+        save() // Single save for both stop and start
 
         // Auto-show floating timer when a timer starts
         NotificationCenter.default.post(name: .autoShowFloatingTimer, object: nil)
@@ -170,7 +179,7 @@ final class TimeEntryEngine {
 
     func addTag(name: String) -> Tag? {
         guard let modelContext else { return nil }
-        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = String(name.trimmingCharacters(in: .whitespacesAndNewlines).prefix(50))
         guard !trimmed.isEmpty else { return nil }
 
         // Return existing tag if duplicate (case-insensitive)
@@ -349,7 +358,8 @@ final class TimeEntryEngine {
             try modelContext?.save()
             lastError = nil
         } catch {
-            lastError = "Failed to save: \(error.localizedDescription)"
+            Logger.data.error("TimeEntryEngine save failed: \(error.localizedDescription)")
+            lastError = "Failed to save data. Please try again."
         }
     }
 }

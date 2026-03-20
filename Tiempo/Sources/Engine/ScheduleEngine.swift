@@ -1,6 +1,11 @@
 import Foundation
 import Observation
 import SwiftData
+import OSLog
+
+private extension Logger {
+    static let schedule = Logger(subsystem: "com.franciscodilussor.tiempo", category: "schedule")
+}
 
 @MainActor
 @Observable
@@ -225,7 +230,8 @@ final class ScheduleEngine {
             try modelContext?.save()
             lastError = nil
         } catch {
-            lastError = "Schedule save failed: \(error.localizedDescription)"
+            Logger.schedule.error("Schedule save failed: \(error.localizedDescription)")
+            lastError = "Failed to save schedule. Please try again."
         }
     }
 }

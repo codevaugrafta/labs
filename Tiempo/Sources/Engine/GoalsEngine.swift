@@ -1,6 +1,11 @@
 import Foundation
 import Observation
 import SwiftData
+import OSLog
+
+private extension Logger {
+    static let goals = Logger(subsystem: "com.franciscodilussor.tiempo", category: "goals")
+}
 
 @MainActor
 @Observable
@@ -21,7 +26,8 @@ final class GoalsEngine {
             try modelContext?.save()
             lastError = nil
         } catch {
-            lastError = "Goals save failed: \(error.localizedDescription)"
+            Logger.goals.error("Goals save failed: \(error.localizedDescription)")
+            lastError = "Failed to save goal. Please try again."
         }
     }
 
