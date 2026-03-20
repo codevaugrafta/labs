@@ -62,6 +62,7 @@ struct AdhanApp: App {
 
 struct AppBootstrapView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.openSettings) private var openSettings
     let engine: PrayerTimesEngine
     let appDelegate: AdhanAppDelegate
 
@@ -73,6 +74,8 @@ struct AppBootstrapView: View {
                 mosqueCache.configure(with: modelContext)
                 engine.configure(mosqueCache: mosqueCache)
                 appDelegate.wireUp(engine: engine)
+                // Menu bar "Settings…" / ⌘, must use SwiftUI’s settings action (private selectors fail from NSStatusItem).
+                appDelegate.menuBarManager.configureOpenSettings { openSettings() }
 
                 // Auto-fetch mosque times on launch
                 Task {

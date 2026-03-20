@@ -10,6 +10,13 @@ final class MenuBarManager {
     private weak var floatingPanel: FloatingPrayerPanel?
     private weak var adhanPlayer: AdhanPlayer?
     private var lastNextPrayerId: String?
+    /// SwiftUI `Settings` scene — use this instead of private `showSettingsWindow:` (unreliable from NSMenu).
+    private var openSettingsFromSwiftUI: (() -> Void)?
+
+    /// Call from `WindowGroup` content once `openSettings` is available (e.g. `AppBootstrapView.onAppear`).
+    func configureOpenSettings(_ action: @escaping () -> Void) {
+        openSettingsFromSwiftUI = action
+    }
 
     func setup(engine: PrayerTimesEngine, floatingPanel: FloatingPrayerPanel? = nil, adhanPlayer: AdhanPlayer? = nil) {
         self.engine = engine
@@ -382,6 +389,17 @@ final class MenuBarManager {
 
     @objc private func openSettings() {
         NSApp.activate(ignoringOtherApps: true)
-        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
+        if let openSettingsFromSwiftUI {
+            openSettingsFromSwiftUI()
+            return
+        }
+        // Fallbacks when handler not registered yet (e.g. before first window appear).
+        let selectors: [Selector] = [
+            Selector(("showSettingsWindow:")),
+            Selector(("showPreferencesWindow:")),
+        ]
+        for sel in selectors {
+            if NSApp.sendAction(sel, to: nil, from: nil) { return }
+        }
     }
 }
