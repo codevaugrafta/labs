@@ -1,0 +1,10 @@
+# SwiftPM
+.build/
+
+# build-app.sh output
+build/
+
+.DS_Store
+
+# Local agent scratch (do not ship in repo)
+.claude/
