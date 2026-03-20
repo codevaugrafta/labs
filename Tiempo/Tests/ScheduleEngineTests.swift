@@ -119,6 +119,46 @@ struct ScheduleEngineTests {
         #expect(block.isException)
     }
 
+    @Test("updateBlock rejects change that would overlap another block")
+    @MainActor
+    func updateBlockOverlapRejected() throws {
+        let (engine, context) = try makeEngine()
+        let category = Category(name: "Work", color: "#4A90D9")
+        context.insert(category)
+        try context.save()
+
+        let weekStart = engine.mondayOfWeek(containing: Date())
+        let cal = Calendar.current
+        let morningStart = cal.date(bySettingHour: 9, minute: 0, second: 0, of: Date())!
+        let morningEnd = cal.date(bySettingHour: 12, minute: 0, second: 0, of: Date())!
+        let afternoonStart = cal.date(bySettingHour: 14, minute: 0, second: 0, of: Date())!
+        let afternoonEnd = cal.date(bySettingHour: 16, minute: 0, second: 0, of: Date())!
+
+        let blockMorning = engine.createBlock(
+            category: category, weekStart: weekStart, dayOfWeek: 1,
+            startTime: morningStart, endTime: morningEnd
+        )!
+        let blockAfternoon = engine.createBlock(
+            category: category, weekStart: weekStart, dayOfWeek: 1,
+            startTime: afternoonStart, endTime: afternoonEnd
+        )!
+
+        let intrudeStart = cal.date(bySettingHour: 10, minute: 0, second: 0, of: Date())!
+        let intrudeEnd = cal.date(bySettingHour: 11, minute: 0, second: 0, of: Date())!
+        let applied = engine.updateBlock(blockAfternoon, startTime: intrudeStart, endTime: intrudeEnd)
+
+        #expect(applied == false)
+        #expect(engine.lastError != nil)
+        #expect(timeToMinutesHelper(blockAfternoon.startTime) == timeToMinutesHelper(afternoonStart))
+        #expect(timeToMinutesHelper(blockAfternoon.endTime) == timeToMinutesHelper(afternoonEnd))
+        #expect(blockMorning.durationMinutes == 180)
+    }
+
+    private func timeToMinutesHelper(_ date: Date) -> Int {
+        let comps = Calendar.current.dateComponents([.hour, .minute], from: date)
+        return (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
+    }
+
     @Test("Deleting a block soft-deletes it")
     @MainActor
     func softDeleteBlock() throws {

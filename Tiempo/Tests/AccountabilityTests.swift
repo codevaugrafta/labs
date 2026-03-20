@@ -180,4 +180,34 @@ struct AccountabilityTests {
         // Average: (1.0 + 0.0) / 2 = 0.5
         #expect(report.score! >= 0.49 && report.score! <= 0.51)
     }
+
+    @Test("Running timer counts toward planned block actual minutes")
+    @MainActor
+    func runningTimerCountsTowardBlock() throws {
+        let (accountability, schedule, _, context) = try makeEngines()
+        let category = Category(name: "Work", color: "#4A90D9")
+        context.insert(category)
+        try context.save()
+
+        let today = Date()
+        let cal = Calendar.current
+        let weekStart = schedule.mondayOfWeek(containing: today)
+        let dayOfWeek = cal.component(.weekday, from: today) - 1
+
+        let blockStart = cal.date(bySettingHour: 0, minute: 0, second: 0, of: today)!
+        let blockEnd = cal.date(bySettingHour: 23, minute: 59, second: 0, of: today)!
+        _ = schedule.createBlock(
+            category: category, weekStart: weekStart, dayOfWeek: dayOfWeek,
+            startTime: blockStart, endTime: blockEnd
+        )
+
+        let entry = TimeEntry(category: category)
+        entry.startedAt = cal.date(byAdding: .minute, value: -30, to: Date())!
+        context.insert(entry)
+        try context.save()
+
+        let report = accountability.dailyReport(for: today)
+        #expect(report.blocks.count == 1)
+        #expect(report.blocks[0].actualMinutes >= 25)
+    }
 }

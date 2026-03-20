@@ -1,7 +1,10 @@
 import Foundation
 import Observation
 import AppKit
+import OSLog
 import UserNotifications
+
+private let countdownNotificationLog = Logger(subsystem: "com.franciscodilussor.tiempo", category: "notifications")
 
 /// A standalone countdown timer that runs alongside Tiempo's category tracking.
 /// Set a target duration (e.g., 3 hours), start it, and it counts down to zero.
@@ -105,9 +108,15 @@ final class CountdownTimer {
         let content = UNMutableNotificationContent()
         content.title = "Tiempo"
         content.body = "Countdown finished!"
-        content.sound = .default
+        if ThemeManager.shared.feedbackSoundEnabled {
+            content.sound = .default
+        }
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-        UNUserNotificationCenter.current().add(request)
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error {
+                countdownNotificationLog.error("Countdown notification failed: \(error.localizedDescription)")
+            }
+        }
     }
 
     private init() {}

@@ -77,7 +77,7 @@ struct TimeEntryEngineTests {
         #expect(engine.activeEntry == nil)
     }
 
-    @Test("Starting a new category stops the previous timer", .serialized)
+    @Test("Starting a new category stops the previous timer")
     @MainActor
     func switchCategory() throws {
         UserDefaults.standard.set(false, forKey: "allowConcurrentTimers")

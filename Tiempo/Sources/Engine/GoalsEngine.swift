@@ -1,10 +1,16 @@
 import Foundation
+import Observation
 import SwiftData
 
 @MainActor
+@Observable
 final class GoalsEngine {
     private var modelContext: ModelContext?
-    var lastError: String?
+    private(set) var lastError: String?
+
+    func clearLastError() {
+        lastError = nil
+    }
 
     func configure(with context: ModelContext) {
         self.modelContext = context
@@ -30,7 +36,11 @@ final class GoalsEngine {
     }
 
     func createGoal(category: Category, targetMinutes: Int, period: String) -> Goal? {
-        guard let modelContext else { return nil }
+        guard let modelContext else {
+            lastError = "Goals data is not ready."
+            return nil
+        }
+        lastError = nil
         let goal = Goal(category: category, targetMinutes: targetMinutes, period: period)
         modelContext.insert(goal)
         save()
@@ -70,26 +80,42 @@ final class GoalsEngine {
         guard let modelContext, let category = goal.category else { return 0 }
         let (start, end) = periodBounds(goal.period, referenceDate: referenceDate)
         let catId = category.id
+        let now = Date()
+        let cal = Calendar.current
 
-        let descriptor = FetchDescriptor<TimeEntry>(
+        let periodEnd = end
+        let fetchStart = cal.date(byAdding: .day, value: -14, to: start)!
+        let completedDesc = FetchDescriptor<TimeEntry>(
             predicate: #Predicate {
-                $0.deletedAt == nil && !$0.isRunning && $0.endedAt != nil
+                $0.deletedAt == nil &&
+                !$0.isRunning &&
+                $0.endedAt != nil &&
+                $0.startedAt < periodEnd &&
+                $0.startedAt >= fetchStart
             }
         )
-        let allEntries = (try? modelContext.fetch(descriptor)) ?? []
+        let runningDesc = FetchDescriptor<TimeEntry>(
+            predicate: #Predicate { $0.deletedAt == nil && $0.isRunning && $0.startedAt < periodEnd }
+        )
+        let completed = (try? modelContext.fetch(completedDesc)) ?? []
+        let running = (try? modelContext.fetch(runningDesc)) ?? []
 
-        // Filter by category (including subcategories) and date range
-        let matching = allEntries.filter { entry in
-            guard let entryCat = entry.category, let endedAt = entry.endedAt else { return false }
+        func matches(_ entry: TimeEntry) -> Bool {
+            guard let entryCat = entry.category else { return false }
             let catMatch = entryCat.id == catId || entryCat.parentId == catId
-            let timeMatch = entry.startedAt < end && endedAt > start
-            return catMatch && timeMatch
+            guard catMatch else { return false }
+            let effectiveEnd = entry.endedAt ?? now
+            return entry.startedAt < end && effectiveEnd > start
         }
 
-        return matching.reduce(0) { total, entry in
-            guard let endedAt = entry.endedAt else { return total }
+        let matching = completed.filter(matches) + running.filter(matches)
+        var seen = Set<UUID>()
+        let unique = matching.filter { seen.insert($0.id).inserted }
+
+        return unique.reduce(0) { total, entry in
+            let effectiveEnd = entry.endedAt ?? now
             let clampedStart = max(entry.startedAt, start)
-            let clampedEnd = min(endedAt, end)
+            let clampedEnd = min(effectiveEnd, end)
             return total + max(0, Int(clampedEnd.timeIntervalSince(clampedStart) / 60))
         }
     }

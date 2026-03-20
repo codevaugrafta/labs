@@ -50,6 +50,29 @@ final class ThemeManager {
     private(set) var labelLetterSpacing: CGFloat = 0.5
     private(set) var usesCustomLayout: Bool = false
 
+    private enum FeedbackKeys {
+        static let sound = "tiempoFeedbackSoundEnabled"
+        static let haptic = "tiempoFeedbackHapticEnabled"
+    }
+
+    /// User preference: timer/theme sounds (`NSSound`). Default on when unset.
+    var feedbackSoundEnabled: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: FeedbackKeys.sound) == nil { return true }
+            return UserDefaults.standard.bool(forKey: FeedbackKeys.sound)
+        }
+        set { UserDefaults.standard.set(newValue, forKey: FeedbackKeys.sound) }
+    }
+
+    /// User preference: haptics (NSHapticFeedbackManager). Default on when unset.
+    var feedbackHapticEnabled: Bool {
+        get {
+            if UserDefaults.standard.object(forKey: FeedbackKeys.haptic) == nil { return true }
+            return UserDefaults.standard.bool(forKey: FeedbackKeys.haptic)
+        }
+        set { UserDefaults.standard.set(newValue, forKey: FeedbackKeys.haptic) }
+    }
+
     var autoScheduleEnabled: Bool {
         get { UserDefaults.standard.bool(forKey: "themeAutoSchedule") }
         set {
@@ -59,11 +82,15 @@ final class ThemeManager {
     }
 
     var selectedThemeId: String {
-        get { UserDefaults.standard.string(forKey: "selectedThemeId") ?? "standard" }
+        get {
+            let raw = UserDefaults.standard.string(forKey: "selectedThemeId") ?? "standard"
+            return raw == "signature" ? "standard-dark" : raw
+        }
         set {
-            UserDefaults.standard.set(newValue, forKey: "selectedThemeId")
+            let id = newValue == "signature" ? "standard-dark" : newValue
+            UserDefaults.standard.set(id, forKey: "selectedThemeId")
             if !autoScheduleEnabled {
-                applyTheme(theme(for: newValue))
+                applyTheme(theme(for: id))
             }
         }
     }
@@ -86,8 +113,7 @@ final class ThemeManager {
 
     static let allThemes: [any TiempoTheme] = [
         StandardTheme(),
-        StandardDarkTheme(),
-        SignatureTheme()
+        StandardDarkTheme()
     ]
 
     struct ThemeEntry: Identifiable {
@@ -103,7 +129,7 @@ final class ThemeManager {
     static let defaultSchedule: [ThemeScheduleRule] = [
         ThemeScheduleRule(themeId: "standard", startHour: 6, endHour: 18),
         ThemeScheduleRule(themeId: "standard-dark", startHour: 18, endHour: 22),
-        ThemeScheduleRule(themeId: "signature", startHour: 22, endHour: 6)
+        ThemeScheduleRule(themeId: "standard-dark", startHour: 22, endHour: 6)
     ]
 
     // MARK: - Sound retention (prevent ARC dealloc before playback completes)
@@ -112,6 +138,9 @@ final class ThemeManager {
     // MARK: Init
 
     private init() {
+        if UserDefaults.standard.string(forKey: "selectedThemeId") == "signature" {
+            UserDefaults.standard.set("standard-dark", forKey: "selectedThemeId")
+        }
         let t: any TiempoTheme
         if autoScheduleEnabled {
             t = resolveScheduledTheme()
@@ -129,13 +158,13 @@ final class ThemeManager {
         let nextIdx = (idx + 1) % ids.count
         selectedThemeId = ids[nextIdx]
         applyTheme(Self.allThemes[nextIdx])
-        playHaptic(.levelChange)
+        if feedbackHapticEnabled { playHaptic(.levelChange) }
     }
 
     func setTheme(_ id: String) {
         selectedThemeId = id
         applyTheme(theme(for: id))
-        playHaptic(.levelChange)
+        if feedbackHapticEnabled { playHaptic(.levelChange) }
     }
 
     func applySchedule() {
@@ -145,18 +174,24 @@ final class ThemeManager {
     // MARK: - Feedback
 
     func playStartFeedback() {
-        if current.hapticOnStart { playHaptic(.generic) }
-        playSound(current.startSound)
+        if feedbackHapticEnabled && current.hapticOnStart {
+            // Stronger than `.generic` so timer taps register on supported trackpads.
+            playHaptic(.levelChange)
+        }
+        if feedbackSoundEnabled { playSound(current.startSound) }
     }
 
     func playStopFeedback() {
-        if current.hapticOnStop { playHaptic(.alignment) }
-        playSound(current.stopSound)
+        if feedbackHapticEnabled && current.hapticOnStop {
+            playHaptic(.alignment)
+            playHaptic(.generic)
+        }
+        if feedbackSoundEnabled { playSound(current.stopSound) }
     }
 
     func playCompleteFeedback() {
-        playHaptic(.levelChange)
-        playSound(current.completeSound)
+        if feedbackHapticEnabled { playHaptic(.levelChange) }
+        if feedbackSoundEnabled { playSound(current.completeSound) }
     }
 
     // MARK: - Private
@@ -227,17 +262,36 @@ final class ThemeManager {
     }
 
     private func theme(for id: String) -> any TiempoTheme {
-        Self.allThemes.first { $0.id == id } ?? StandardTheme()
+        if id == "signature" { return StandardDarkTheme() }
+        return Self.allThemes.first { $0.id == id } ?? StandardTheme()
     }
 
     private func playHaptic(_ pattern: NSHapticFeedbackManager.FeedbackPattern) {
         NSHapticFeedbackManager.defaultPerformer.perform(pattern, performanceTime: .default)
     }
 
+    /// Loads macOS system `.aiff` sounds. `NSSound(named:)` often fails for SwiftPM apps; file URLs are reliable.
+    private static let systemSoundsDirectory = URL(fileURLWithPath: "/System/Library/Sounds", isDirectory: true)
+
     private func playSound(_ name: String?) {
-        guard let name, let sound = NSSound(named: name) else { return }
+        guard feedbackSoundEnabled, let name, !name.isEmpty else { return }
         currentSound?.stop()
-        currentSound = sound
-        currentSound?.play()
+
+        let fileURL = Self.systemSoundsDirectory.appendingPathComponent("\(name).aiff", isDirectory: false)
+        if let sound = NSSound(contentsOf: fileURL, byReference: true) {
+            sound.volume = 1.0
+            currentSound = sound
+            sound.play()
+            return
+        }
+
+        if let sound = NSSound(named: NSSound.Name(name)) {
+            sound.volume = 1.0
+            currentSound = sound
+            sound.play()
+            return
+        }
+
+        NSSound.beep()
     }
 }

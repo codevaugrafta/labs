@@ -1,11 +1,17 @@
 import Foundation
+import Observation
 import SwiftData
 
 @MainActor
+@Observable
 final class ScheduleEngine {
     private var modelContext: ModelContext?
 
-    private var lastError: String?
+    private(set) var lastError: String?
+
+    func clearLastError() {
+        lastError = nil
+    }
 
     func configure(with context: ModelContext) {
         guard self.modelContext == nil else { return }
@@ -27,7 +33,11 @@ final class ScheduleEngine {
         endTime: Date,
         template: ScheduleTemplate? = nil
     ) -> ScheduledBlock? {
-        guard let modelContext else { return nil }
+        guard let modelContext else {
+            lastError = "Schedule is not ready."
+            return nil
+        }
+        lastError = nil
 
         // Validate no overlap
         let existing = blocksForDay(weekStart: weekStart, dayOfWeek: dayOfWeek)
@@ -38,7 +48,8 @@ final class ScheduleEngine {
             let existStart = timeToMinutes(block.startTime)
             let existEnd = timeToMinutes(block.endTime)
             if newStart < existEnd && newEnd > existStart {
-                return nil // Overlap detected
+                lastError = "This time overlaps another scheduled block."
+                return nil
             }
         }
 
@@ -55,7 +66,30 @@ final class ScheduleEngine {
         return block
     }
 
-    func updateBlock(_ block: ScheduledBlock, startTime: Date? = nil, endTime: Date? = nil, category: Category? = nil) {
+    @discardableResult
+    func updateBlock(_ block: ScheduledBlock, startTime: Date? = nil, endTime: Date? = nil, category: Category? = nil) -> Bool {
+        guard modelContext != nil else {
+            lastError = "Schedule is not ready."
+            return false
+        }
+
+        let newStart = startTime ?? block.startTime
+        let newEnd = endTime ?? block.endTime
+        let newA = timeToMinutes(newStart)
+        let newB = timeToMinutes(newEnd)
+
+        let others = blocksForDay(weekStart: block.weekStart, dayOfWeek: block.dayOfWeek)
+            .filter { $0.id != block.id }
+        for other in others {
+            let oa = timeToMinutes(other.startTime)
+            let ob = timeToMinutes(other.endTime)
+            if newA < ob && newB > oa {
+                lastError = "This time overlaps another scheduled block."
+                return false
+            }
+        }
+
+        lastError = nil
         if let startTime { block.startTime = startTime }
         if let endTime { block.endTime = endTime }
         if let category { block.category = category }
@@ -67,6 +101,7 @@ final class ScheduleEngine {
 
         block.updatedAt = Date()
         save()
+        return true
     }
 
     func deleteBlock(_ block: ScheduledBlock) {
@@ -105,7 +140,11 @@ final class ScheduleEngine {
     // MARK: - Templates & Recurrence
 
     func createTemplate(name: String) -> ScheduleTemplate? {
-        guard let modelContext else { return nil }
+        guard let modelContext else {
+            lastError = "Schedule is not ready."
+            return nil
+        }
+        lastError = nil
         let template = ScheduleTemplate(name: name)
         modelContext.insert(template)
         save()

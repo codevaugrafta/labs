@@ -5,14 +5,8 @@ struct ContentView: View {
     private let tm = ThemeManager.shared
 
     var body: some View {
-        Group {
-            if tm.usesCustomLayout {
-                SignatureContentView()
-            } else {
-                StandardContentView()
-            }
-        }
-        .animation(.easeInOut(duration: 0.4), value: tm.themeVersion)
+        StandardContentView()
+            .animation(.spring(response: tm.springResponse, dampingFraction: tm.springDamping), value: tm.themeVersion)
     }
 }
 

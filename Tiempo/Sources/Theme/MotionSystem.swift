@@ -30,26 +30,37 @@ extension View {
 
 struct PulseModifier: ViewModifier {
     let isActive: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isPulsing = false
 
     func body(content: Content) -> some View {
         let speed = ThemeManager.shared.current.timerPulseSpeed
 
-        content
-            .opacity(isActive ? (isPulsing ? 0.4 : 1.0) : 1.0)
-            .scaleEffect(isActive ? (isPulsing ? 1.15 : 1.0) : 1.0)
-            .animation(
-                isActive
-                    ? .easeInOut(duration: speed).repeatForever(autoreverses: true)
-                    : .default,
-                value: isPulsing
-            )
-            .onAppear {
-                if isActive { isPulsing = true }
+        Group {
+            if reduceMotion {
+                content
+            } else {
+                content
+                    .opacity(isActive ? (isPulsing ? 0.4 : 1.0) : 1.0)
+                    .scaleEffect(isActive ? (isPulsing ? 1.15 : 1.0) : 1.0)
+                    .animation(
+                        isActive
+                            ? .easeInOut(duration: speed).repeatForever(autoreverses: true)
+                            : .default,
+                        value: isPulsing
+                    )
             }
-            .onChange(of: isActive) { _, newValue in
-                isPulsing = newValue
-            }
+        }
+        .onAppear {
+            if isActive && !reduceMotion { isPulsing = true }
+        }
+        .onChange(of: isActive) { _, newValue in
+            isPulsing = newValue && !reduceMotion
+        }
+        .onChange(of: reduceMotion) { _, limited in
+            if limited { isPulsing = false }
+            else if isActive { isPulsing = true }
+        }
     }
 }
 

@@ -199,18 +199,17 @@ final class MenuBarManager {
         floatingItem.keyEquivalentModifierMask = [.command, .shift]
         menu.addItem(floatingItem)
 
-        // ── Show Main Window ──
-        let showWindowItem = NSMenuItem(title: "Show Main Window", action: #selector(showMainWindow), keyEquivalent: "o")
+        // ── Show Main Window (no shortcut: ⌘O only worked while Tiempo was active, which isn’t useful from other apps)
+        let showWindowItem = NSMenuItem(title: "Show Main Window", action: #selector(showMainWindow), keyEquivalent: "")
         showWindowItem.target = self
-        showWindowItem.keyEquivalentModifierMask = [.command]
         menu.addItem(showWindowItem)
 
-        // ── Theme Section ──
+        // ── Theme — must match main menu / local monitor: ⌘⇧K (⌘⇧T is toggle timer; using "t" here stole the shortcut)
         let themeManager = ThemeManager.shared
         let themeItem = NSMenuItem(
-            title: "Theme: \(themeManager.current.displayName)",
+            title: "Cycle Theme — \(themeManager.current.displayName)",
             action: #selector(cycleTheme),
-            keyEquivalent: "t"
+            keyEquivalent: "k"
         )
         themeItem.target = self
         themeItem.keyEquivalentModifierMask = [.command, .shift]

@@ -93,7 +93,7 @@ final class AccountabilityEngine {
 
             for entry in entries where entry.category?.id == cat.id {
                 let entryStart = max(entry.startedAt, blockStart)
-                let entryEnd = min(entry.endedAt ?? date, blockEnd)
+                let entryEnd = min(entry.endedAt ?? Date(), blockEnd)
 
                 if entryStart < entryEnd {
                     let overlap = Int(entryEnd.timeIntervalSince(entryStart) / 60)
@@ -177,23 +177,37 @@ final class AccountabilityEngine {
         let calendar = Calendar.current
         let dayStart = calendar.startOfDay(for: date)
         let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart)!
+        let now = Date()
+        // Include sessions that might cross into this day (avoid unbounded history; SwiftData predicates avoid optional Date compares).
+        let fetchStart = calendar.date(byAdding: .day, value: -2, to: dayStart)!
 
-        let descriptor = FetchDescriptor<TimeEntry>(
+        let completedDesc = FetchDescriptor<TimeEntry>(
             predicate: #Predicate {
                 $0.deletedAt == nil &&
                 !$0.isRunning &&
+                $0.endedAt != nil &&
                 $0.startedAt < dayEnd &&
-                ($0.endedAt != nil)
+                $0.startedAt >= fetchStart
             },
             sortBy: [SortDescriptor(\TimeEntry.startedAt)]
         )
-        let allEntries = (try? modelContext.fetch(descriptor)) ?? []
+        let runningDesc = FetchDescriptor<TimeEntry>(
+            predicate: #Predicate { $0.deletedAt == nil && $0.isRunning && $0.startedAt < dayEnd }
+        )
+        let completed = (try? modelContext.fetch(completedDesc)) ?? []
+        let running = (try? modelContext.fetch(runningDesc)) ?? []
 
-        // Filter to entries that overlap with this day (handles midnight crossing)
-        return allEntries.filter { entry in
+        let completedOverlapping = completed.filter { entry in
             guard let endedAt = entry.endedAt else { return false }
             return entry.startedAt < dayEnd && endedAt > dayStart
         }
+        let runningOverlapping = running.filter { entry in
+            let effectiveEnd = entry.endedAt ?? now
+            return effectiveEnd > dayStart
+        }
+
+        return (completedOverlapping + runningOverlapping)
+            .sorted { $0.startedAt < $1.startedAt }
     }
 
     private func totalTrackedMinutes(for date: Date) -> Int {
@@ -203,9 +217,9 @@ final class AccountabilityEngine {
         let dayEnd = calendar.date(byAdding: .day, value: 1, to: dayStart)!
 
         return entries.reduce(0) { total, entry in
-            guard let endedAt = entry.endedAt else { return total }
+            let rawEnd = entry.endedAt ?? Date()
             let clampedStart = max(entry.startedAt, dayStart)
-            let clampedEnd = min(endedAt, dayEnd)
+            let clampedEnd = min(rawEnd, dayEnd)
             return total + max(0, Int(clampedEnd.timeIntervalSince(clampedStart) / 60))
         }
     }

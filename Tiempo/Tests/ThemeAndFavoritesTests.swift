@@ -68,36 +68,36 @@ struct ThemeAndFavoritesTests {
 
     // MARK: - Theme Engine
 
-    @Test("All 3 themes are available")
+    @Test("Standard and Standard Dark themes are available")
     @MainActor
     func allThemesAvailable() {
         let themes = ThemeManager.allThemes
-        #expect(themes.count == 3)
+        #expect(themes.count == 2)
         let ids = Set(themes.map(\.id))
         #expect(ids.contains("standard"))
         #expect(ids.contains("standard-dark"))
-        #expect(ids.contains("signature"))
     }
 
     @Test("ThemeManager cycles through themes")
     @MainActor
     func cycleTheme() {
         let manager = ThemeManager.shared
+        manager.setTheme("standard")
         let startId = manager.current.id
         manager.cycleTheme()
         #expect(manager.current.id != startId)
-        // Cycle back to start
-        manager.cycleTheme()
+        // With two themes, one more cycle returns to start
         manager.cycleTheme()
         #expect(manager.current.id == startId)
     }
 
-    @Test("setTheme changes current theme")
+    @Test("setTheme changes current theme; legacy signature id maps to Standard Dark")
     @MainActor
     func setTheme() {
         let manager = ThemeManager.shared
         manager.setTheme("signature")
-        #expect(manager.current.id == "signature")
+        #expect(manager.current.id == "standard-dark")
+        #expect(manager.selectedThemeId == "standard-dark")
         manager.setTheme("standard-dark")
         #expect(manager.current.id == "standard-dark")
         // Reset to standard for other tests
@@ -108,23 +108,21 @@ struct ThemeAndFavoritesTests {
     @MainActor
     func themeEntries() {
         let entries = ThemeManager.themeEntries
-        #expect(entries.count == 3)
+        #expect(entries.count == 2)
         #expect(entries[0].id == "standard")
         #expect(entries[1].id == "standard-dark")
-        #expect(entries[2].id == "signature")
     }
 
-    @Test("Signature theme has custom layout and dark appearance")
+    @Test("Standard Dark forces dark appearance; Standard follows system")
     @MainActor
-    func signatureThemeProperties() {
-        let sig = SignatureTheme()
+    func standardDarkVsStandardLayout() {
+        let dark = StandardDarkTheme()
         let std = StandardTheme()
 
-        #expect(sig.usesCustomLayout == true)
+        #expect(dark.usesCustomLayout == false)
         #expect(std.usesCustomLayout == false)
-        #expect(sig.forcedAppearance == "dark")
+        #expect(dark.forcedAppearance == "dark")
         #expect(std.forcedAppearance == nil)
-        #expect(sig.timerPulseSpeed > std.timerPulseSpeed) // Slower breathing
     }
 
     @Test("Default schedule covers 24 hours")

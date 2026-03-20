@@ -294,6 +294,8 @@ struct CategoryTile: View {
     var isSubcategory: Bool = false
     let onTap: () -> Void
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     private var isActive: Bool { activeEntry != nil }
     @State private var isPressed = false
 
@@ -303,16 +305,19 @@ struct CategoryTile: View {
 
     var body: some View {
         Button {
-            // Spring bounce
-            withAnimation(.spring(response: ThemeManager.shared.springResponse, dampingFraction: ThemeManager.shared.springDamping)) {
+            let theme = ThemeManager.shared
+            let spring = Animation.spring(response: theme.springResponse, dampingFraction: theme.springDamping)
+            if reduceMotion {
                 isPressed = true
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                withAnimation(.spring(response: ThemeManager.shared.springResponse, dampingFraction: ThemeManager.shared.springDamping)) {
-                    isPressed = false
+                onTap()
+                isPressed = false
+            } else {
+                withAnimation(spring) { isPressed = true }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    withAnimation(spring) { isPressed = false }
                 }
+                onTap()
             }
-            onTap()
         } label: {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
@@ -354,11 +359,19 @@ struct CategoryTile: View {
                         RoundedRectangle(cornerRadius: isSubcategory ? 8 : theme.tileCornerRadius)
                             .strokeBorder(isActive ? parsedColor : theme.border, lineWidth: isActive ? 2 : 1)
                     )
+                    .shadow(
+                        color: isActive ? parsedColor.opacity(0.22) : .clear,
+                        radius: isActive ? (isSubcategory ? 6 : 10) : 0,
+                        y: isActive ? 3 : 0
+                    )
             }
         }
         .buttonStyle(.plain)
-        .scaleEffect(isPressed ? 0.95 : 1.0)
-        .animation(.spring(response: ThemeManager.shared.springResponse, dampingFraction: ThemeManager.shared.springDamping), value: isActive)
+        .scaleEffect(isPressed ? (reduceMotion ? 0.99 : 0.93) : 1.0)
+        .animation(
+            reduceMotion ? .easeInOut(duration: 0.2) : .spring(response: ThemeManager.shared.springResponse, dampingFraction: ThemeManager.shared.springDamping),
+            value: isActive
+        )
     }
 
     private func elapsedText(for entry: TimeEntry) -> String {

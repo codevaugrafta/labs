@@ -1,20 +1,49 @@
 import SwiftUI
 import SwiftData
 import ServiceManagement
+import AppKit
 
 @main
 struct TiempoApp: App {
     @NSApplicationDelegateAdaptor(TiempoAppDelegate.self) var appDelegate
     @State private var engine = TimeEntryEngine()
 
+    /// Isolated database for Tiempo — not shared with other apps.
+    static let modelContainer: ModelContainer = {
+        let schema = Schema([
+            Category.self, TimeEntry.self, Tag.self,
+            ScheduleTemplate.self, ScheduledBlock.self, Goal.self
+        ])
+        let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let tiempoDir = appSupport.appendingPathComponent("Tiempo", isDirectory: true)
+        try? FileManager.default.createDirectory(at: tiempoDir, withIntermediateDirectories: true)
+
+        let storeURL = tiempoDir.appendingPathComponent("Tiempo.store")
+        let config = ModelConfiguration("Tiempo", schema: schema, url: storeURL)
+
+        // Tighten file permissions to owner-only (600) after creation
+        defer {
+            let path = storeURL.path
+            if FileManager.default.fileExists(atPath: path) {
+                chmod(path, 0o600)
+                // Also secure the WAL and SHM files
+                chmod(path + "-wal", 0o600)
+                chmod(path + "-shm", 0o600)
+            }
+        }
+
+        do {
+            return try ModelContainer(for: schema, configurations: config)
+        } catch {
+            fatalError("Failed to create Tiempo database: \(error)")
+        }
+    }()
+
     var body: some Scene {
         WindowGroup {
             AppBootstrapView(engine: engine, appDelegate: appDelegate)
         }
-        .modelContainer(for: [
-            Category.self, TimeEntry.self, Tag.self,
-            ScheduleTemplate.self, ScheduledBlock.self, Goal.self
-        ])
+        .modelContainer(Self.modelContainer)
         .commands {
             // Tiempo menu commands — work when app is focused
             CommandGroup(after: .toolbar) {
@@ -83,12 +112,15 @@ class TiempoAppDelegate: NSObject, NSApplicationDelegate {
     let menuBarManager = MenuBarManager()
     let floatingPanel = FloatingTimerPanel()
     private weak var engine: TimeEntryEngine?
+    /// Local monitor: SwiftUI `.commands` shortcuts are flaky until menus are used; status-item `NSMenu` shortcuts only work while that menu is open.
+    private var keyDownMonitor: Any?
 
     func wireUp(engine: TimeEntryEngine) {
         guard self.engine == nil else { return }
         self.engine = engine
         menuBarManager.setup(engine: engine, floatingPanel: floatingPanel)
         floatingPanel.setup(engine: engine)
+        installLocalKeyboardShortcuts()
 
         // Auto-show floating timer when a timer starts
         NotificationCenter.default.addObserver(forName: .autoShowFloatingTimer, object: nil, queue: .main) { [weak self] _ in
@@ -106,7 +138,85 @@ class TiempoAppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    func applicationWillTerminate(_ notification: Notification) {}
+    func applicationWillTerminate(_ notification: Notification) {
+        removeLocalKeyboardShortcuts()
+    }
+
+    // MARK: - App-wide shortcuts (while Tiempo is the active app)
+
+    private func installLocalKeyboardShortcuts() {
+        removeLocalKeyboardShortcuts()
+        keyDownMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            // Local monitors run on the thread that received the event (main for UI).
+            return self.handleLocalKeyDown(event)
+        }
+    }
+
+    private func removeLocalKeyboardShortcuts() {
+        if let keyDownMonitor {
+            NSEvent.removeMonitor(keyDownMonitor)
+            self.keyDownMonitor = nil
+        }
+    }
+
+    /// Returns `nil` if the event was handled (do not propagate).
+    private func handleLocalKeyDown(_ event: NSEvent) -> NSEvent? {
+        guard NSApp.isActive else { return event }
+        if Self.keyWindowHasTextFocus() { return event }
+
+        let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let cmdShift: NSEvent.ModifierFlags = [.command, .shift]
+        let ctrlShift: NSEvent.ModifierFlags = [.control, .shift]
+        let isCmdShift = mods.intersection(cmdShift) == cmdShift
+        let isCtrlShift = mods.intersection(ctrlShift) == ctrlShift
+
+        let code = event.keyCode
+        let ch = event.charactersIgnoringModifiers?.lowercased().first
+
+        // Prefer physical key codes: some ⌘⇧ combos report an empty `charactersIgnoringModifiers` (notably K for some layouts/states).
+        // US ANSI key codes: F=3, C=8, T=17, K=40.
+        let isT = code == 17 || ch == "t"
+        let isF = code == 3 || ch == "f"
+        let isC = code == 8 || ch == "c"
+        let isK = code == 40 || ch == "k"
+
+        // Toggle timer: ⌘⇧T or ⌃⇧T (Settings)
+        if isT, isCmdShift || isCtrlShift {
+            guard let engine else { return event }
+            if engine.activeEntry != nil { TiempoFeedback.onTimerStop() }
+            engine.toggleCurrentTimer()
+            return nil
+        }
+
+        guard isCmdShift else { return event }
+
+        if isF {
+            if floatingPanel.isVisible { floatingPanel.hide() } else { floatingPanel.show() }
+            return nil
+        }
+        if isC {
+            floatingPanel.showWithCountdownPicker()
+            return nil
+        }
+        if isK {
+            ThemeManager.shared.cycleTheme()
+            return nil
+        }
+
+        return event
+    }
+
+    /// Avoid stealing shortcuts while typing in text fields / search.
+    private static func keyWindowHasTextFocus() -> Bool {
+        guard let window = NSApp.keyWindow else { return false }
+        var responder: NSResponder? = window.firstResponder
+        while let current = responder {
+            if current is NSTextView || current is NSTextField { return true }
+            responder = current.nextResponder
+        }
+        return false
+    }
 }
 
 // MARK: - Settings Tab
@@ -114,7 +224,6 @@ class TiempoAppDelegate: NSObject, NSApplicationDelegate {
 struct SettingsTab: View {
     let engine: TimeEntryEngine
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
-    @State private var themeManager = ThemeManager.shared
 
     var body: some View {
         TabView {
@@ -153,8 +262,8 @@ struct GeneralSettingsView: View {
                 ))
             }
 
-            Section("Global Shortcut") {
-                Text("Ctrl+Shift+T — Toggle active timer")
+            Section("Keyboard shortcuts") {
+                Text("While Tiempo is the active app: ⌘⇧T or ⌃⇧T — stop active timer · ⌘⇧F — floating timer · ⌘⇧C — countdown · ⌘⇧K — cycle theme. From another app, use the Dock or click the menu bar timer; there is no global hotkey.")
                     .foregroundStyle(.secondary)
                     .font(.caption)
             }
@@ -182,7 +291,7 @@ struct ThemeSettingsView: View {
                 ))
 
                 if autoEnabled {
-                    ForEach(ThemeManager.defaultSchedule, id: \.themeId) { rule in
+                    ForEach(Array(ThemeManager.defaultSchedule.enumerated()), id: \.offset) { _, rule in
                         let themeName = ThemeManager.allThemes.first { $0.id == rule.themeId }?.displayName ?? rule.themeId
                         HStack {
                             Text(themeName)
@@ -197,8 +306,17 @@ struct ThemeSettingsView: View {
             }
 
             Section("Feedback") {
-                Toggle("Sound effects", isOn: .constant(true))
-                Toggle("Haptic feedback (trackpad)", isOn: .constant(true))
+                Toggle("Sound effects", isOn: Binding(
+                    get: { ThemeManager.shared.feedbackSoundEnabled },
+                    set: { ThemeManager.shared.feedbackSoundEnabled = $0 }
+                ))
+                Toggle("Haptic feedback (trackpad)", isOn: Binding(
+                    get: { ThemeManager.shared.feedbackHapticEnabled },
+                    set: { ThemeManager.shared.feedbackHapticEnabled = $0 }
+                ))
+                Text("Timer start/stop, countdown complete, and theme switches. Sounds use macOS system alerts (check Sound in System Settings). Haptics need a Magic Trackpad or built-in trackpad with haptics enabled.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

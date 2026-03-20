@@ -10,7 +10,6 @@ struct GoalsView: View {
     @State private var goalsEngine = GoalsEngine()
     @State private var progressList: [GoalsEngine.GoalProgress] = []
     @State private var showingAddGoal = false
-    @State private var tick = Date()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -25,6 +24,26 @@ struct GoalsView: View {
                 .buttonStyle(.plain)
             }
             .padding()
+
+            if let err = goalsEngine.lastError {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text(err)
+                        .font(.caption)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    Button("Dismiss") {
+                        goalsEngine.clearLastError()
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.orange.opacity(0.12))
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Goals error: \(err)")
+            }
 
             if progressList.isEmpty {
                 VStack(spacing: 12) {
@@ -169,11 +188,19 @@ struct AddGoalSheet: View {
     @State private var targetHours = 1
     @State private var targetMinutes = 0
     @State private var period = "daily"
+    @State private var error: String?
 
     var body: some View {
         VStack(spacing: 16) {
             Text("New Goal")
                 .font(.title2.bold())
+
+            if let error {
+                Text(error)
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
 
             Picker("Category", selection: $selectedCategory) {
                 Text("Select...").tag(nil as Category?)
@@ -202,10 +229,14 @@ struct AddGoalSheet: View {
                     .keyboardShortcut(.cancelAction)
                 Spacer()
                 Button("Create Goal") {
+                    error = nil
                     guard let cat = selectedCategory else { return }
                     let total = targetHours * 60 + targetMinutes
                     guard total > 0 else { return }
-                    _ = goalsEngine.createGoal(category: cat, targetMinutes: total, period: period)
+                    guard goalsEngine.createGoal(category: cat, targetMinutes: total, period: period) != nil else {
+                        error = goalsEngine.lastError ?? "Could not create goal. Try again."
+                        return
+                    }
                     onDone()
                     dismiss()
                 }

@@ -9,6 +9,8 @@ echo "Packaging .app bundle..."
 mkdir -p build/Tiempo.app/Contents/MacOS
 mkdir -p build/Tiempo.app/Contents/Resources
 
+cp packaging/Info.plist build/Tiempo.app/Contents/Info.plist
+
 cp .build/release/Tiempo build/Tiempo.app/Contents/MacOS/Tiempo
 chmod +x build/Tiempo.app/Contents/MacOS/Tiempo
 

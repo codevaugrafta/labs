@@ -30,6 +30,27 @@ struct ScheduleView: View {
             }
             .padding()
 
+            if let err = scheduleEngine.lastError {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.orange)
+                    Text(err)
+                        .font(.caption)
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                    Button("Dismiss") {
+                        scheduleEngine.clearLastError()
+                    }
+                    .buttonStyle(.borderless)
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.orange.opacity(0.12))
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Schedule error: \(err)")
+            }
+
             // Week navigation
             HStack {
                 Button {
@@ -99,8 +120,15 @@ struct ScheduleView: View {
         }
     }
 
+    /// `selectedWeekStart` is Monday 00:00; day strip is Sun(0)…Sat(6). Compare must use the same calendar day as Plan (`blocksForDay` / `dayOfWeek`).
     private var selectedDate: Date {
-        Calendar.current.date(byAdding: .day, value: selectedDay, to: selectedWeekStart) ?? selectedWeekStart
+        let offset = Self.dayOffsetFromWeekMonday(selectedDayIndex: selectedDay)
+        return Calendar.current.date(byAdding: .day, value: offset, to: selectedWeekStart) ?? selectedWeekStart
+    }
+
+    /// Maps UI index 0=Sunday … 6=Saturday to offset from the week's Monday anchor.
+    static func dayOffsetFromWeekMonday(selectedDayIndex: Int) -> Int {
+        selectedDayIndex == 0 ? -1 : selectedDayIndex - 1
     }
 
     private var weekLabel: String {
@@ -390,7 +418,7 @@ struct AddBlockSheet: View {
             startTime: startTime,
             endTime: endTime
         ) else {
-            error = "Cannot create block — overlaps with an existing block."
+            error = scheduleEngine.lastError ?? "Cannot create block."
             return
         }
 
