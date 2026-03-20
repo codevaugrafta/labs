@@ -10,6 +10,7 @@ final class MenuBarManager {
     private weak var floatingPanel: FloatingPrayerPanel?
     private weak var adhanPlayer: AdhanPlayer?
     private var lastNextPrayerId: String?
+    private var lastAdhanPlaying: Bool = false
     /// SwiftUI `Settings` scene — use this instead of private `showSettingsWindow:` (unreliable from NSMenu).
     private var openSettingsFromSwiftUI: (() -> Void)?
 
@@ -73,10 +74,12 @@ final class MenuBarManager {
 
         applyStatusButtonToolTip()
 
-        // Rebuild menu when next prayer changes
+        // Rebuild menu when next prayer or playback changes (Stop Adhan enabled state, labels).
         let currentNextId = engine.nextPrayer?.id
-        if currentNextId != lastNextPrayerId {
+        let playing = adhanPlayer?.isPlaying ?? false
+        if currentNextId != lastNextPrayerId || playing != lastAdhanPlaying {
             lastNextPrayerId = currentNextId
+            lastAdhanPlaying = playing
             buildMenu()
         }
     }
@@ -105,7 +108,7 @@ final class MenuBarManager {
         let buildRow = NSMenuItem(title: buildTitle, action: #selector(showAdhanBuildInfo(_:)), keyEquivalent: "")
         buildRow.target = self
         buildRow.isEnabled = true
-        buildRow.toolTip = "Shows bundle path. Use Adhan.app from /Applications or build/ for release behavior."
+        buildRow.toolTip = "Click for build details (bundle path). Use Adhan.app from /Applications or build/ for release behavior."
         menu.addItem(buildRow)
 
         menu.addItem(.separator())
@@ -114,23 +117,39 @@ final class MenuBarManager {
         let hijriItem = NSMenuItem(title: "\u{263D} \(engine.hijriEngine.hijriDateString)", action: #selector(copyMenuItemTitle(_:)), keyEquivalent: "")
         hijriItem.target = self
         hijriItem.isEnabled = true
-        hijriItem.toolTip = "Copy date to clipboard"
+        hijriItem.toolTip = "Copy Hijri date to clipboard"
         menu.addItem(hijriItem)
 
         let locationItem = NSMenuItem(title: "\u{1F4CD} \(engine.locationName)", action: #selector(copyMenuItemTitle(_:)), keyEquivalent: "")
         locationItem.target = self
         locationItem.isEnabled = true
-        locationItem.toolTip = "Copy location to clipboard"
+        locationItem.toolTip = "Copy location name to clipboard"
         menu.addItem(locationItem)
 
         menu.addItem(.separator())
 
+        // ── Stop playback (discoverable; same as app menu ⌘⇧S) ──
+        let stopItem = NSMenuItem(
+            title: "Stop Adhan Playback",
+            action: #selector(stopAdhanPlayback),
+            keyEquivalent: "s"
+        )
+        stopItem.target = self
+        stopItem.keyEquivalentModifierMask = [.command, .shift]
+        stopItem.isEnabled = adhanPlayer?.isPlaying ?? false
+        stopItem.toolTip = "Stops Adhan, preview, or pre-reminder chime (⌘⇧S)."
+        menu.addItem(stopItem)
+
+        menu.addItem(.separator())
+
         // ── Prayer Times ──
+        let timetableMenuInsertIndex = menu.items.count
         for entry in engine.todayEntries {
             let isNext = entry.id == engine.nextPrayer?.id
 
             if isNext {
-                let item = NSMenuItem(title: "", action: #selector(handlePrayerRowClick(_:)), keyEquivalent: "")
+                let plainTitle = "\(entry.prayer.displayName)  \(entry.formattedBeginTime)  (in \(entry.formattedCountdown))"
+                let item = NSMenuItem(title: plainTitle, action: #selector(copyPrayerRow(_:)), keyEquivalent: "")
                 item.target = self
                 item.representedObject = Self.rowPayload(for: entry)
                 item.attributedTitle = highlightedAttributedString(
@@ -147,7 +166,7 @@ final class MenuBarManager {
                 let check = isPassed ? "\u{2713}" : " "
                 let iqamahStr = entry.formattedIqamahTime.map { "  Iqamah \($0)" } ?? ""
                 let title = " \(check)  \(entry.prayer.displayName.padding(toLength: 10, withPad: " ", startingAt: 0))\(entry.formattedBeginTime)\(iqamahStr)"
-                let item = NSMenuItem(title: title, action: #selector(handlePrayerRowClick(_:)), keyEquivalent: "")
+                let item = NSMenuItem(title: title, action: #selector(copyPrayerRow(_:)), keyEquivalent: "")
                 item.target = self
                 item.representedObject = Self.rowPayload(for: entry)
                 item.isEnabled = true
@@ -156,7 +175,22 @@ final class MenuBarManager {
             }
         }
 
-        menu.addItem(.separator())
+        // Explicit preview — prayer rows are copy-only; target skips sunrise when it is “next”.
+        if let previewTarget = previewEntry(for: engine) {
+            let preview = NSMenuItem(
+                title: "Preview Adhan — \(previewTarget.prayer.displayName)",
+                action: #selector(previewAdhanForNextPrayer),
+                keyEquivalent: ""
+            )
+            preview.target = self
+            preview.isEnabled = adhanPlayer != nil
+            preview.toolTip = "Plays the Adhan sample for this prayer (from Settings recitation)."
+            menu.addItem(preview)
+        }
+
+        if menu.items.count > timetableMenuInsertIndex {
+            menu.addItem(.separator())
+        }
 
         // ── Next Prayer ──
         if let next = engine.nextPrayer {
@@ -266,6 +300,12 @@ final class MenuBarManager {
 
     // MARK: - Row payload (prayer rows)
 
+    /// Next slot that should hear an Adhan preview (when “next” is sunrise, use the following obligatory prayer).
+    private func previewEntry(for engine: PrayerTimesEngine) -> PrayerTimeEntry? {
+        if let next = engine.nextPrayer, next.prayer != .sunrise { return next }
+        return engine.todayEntries.first { $0.isFuture && $0.prayer != .sunrise }
+    }
+
     /// Tab-separated: rawValue, begin HH:mm, optional iqamah HH:mm
     private static func rowPayload(for entry: PrayerTimeEntry) -> String {
         let iq = entry.formattedIqamahTime ?? ""
@@ -284,10 +324,7 @@ final class MenuBarManager {
     }
 
     private static func rowToolTip(for entry: PrayerTimeEntry) -> String {
-        if entry.prayer == .sunrise {
-            return "Copy sunrise time"
-        }
-        return "Play \(entry.prayer.displayName) Adhan (preview)"
+        "Copy \(entry.prayer.displayName) time\(entry.formattedIqamahTime.map { ", Iqamah \($0)" } ?? "") to clipboard"
     }
 
     // MARK: - Actions
@@ -328,28 +365,26 @@ final class MenuBarManager {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
-    @objc private func handlePrayerRowClick(_ sender: NSMenuItem) {
+    /// Prayer timetable rows: **copy only** (same idea as Hijri / location). Use “Preview Adhan — …” to hear audio.
+    @objc private func copyPrayerRow(_ sender: NSMenuItem) {
         guard let raw = sender.representedObject as? String,
               let parsed = Self.parseRowPayload(raw) else { return }
+        copyPrayerTimesLine(prayer: parsed.prayer, begin: parsed.begin, iqamah: parsed.iqamah)
+    }
 
-        if parsed.prayer == .sunrise {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString("\(parsed.prayer.displayName) \(parsed.begin)", forType: .string)
-            return
-        }
+    @objc private func stopAdhanPlayback() {
+        adhanPlayer?.stop()
+    }
 
-        guard let player = adhanPlayer else {
-            copyPrayerTimesLine(prayer: parsed.prayer, begin: parsed.begin, iqamah: parsed.iqamah)
-            return
-        }
-
+    @objc private func previewAdhanForNextPrayer() {
+        guard let engine, let target = previewEntry(for: engine), let player = adhanPlayer else { return }
         let storedId: String?
-        if parsed.prayer == .fajr {
+        if target.prayer == .fajr {
             storedId = UserDefaults.standard.string(forKey: AppSettings.fajrRecitationKey)
         } else {
             storedId = UserDefaults.standard.string(forKey: AppSettings.defaultRecitationKey)
         }
-        let recitation = AdhanRecitation.resolveBundled(storedId: storedId, forFajr: parsed.prayer == .fajr)
+        let recitation = AdhanRecitation.resolveBundled(storedId: storedId, forFajr: target.prayer == .fajr)
         player.play(recitation: recitation)
     }
 

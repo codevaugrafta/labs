@@ -66,9 +66,11 @@ final class AdhanPlayer {
 
     /// Play a short chime sound for pre-reminders.
     func playChime() {
+        stopImmediately()
+        lastPlaybackError = nil
+
         guard let url = audioURL(for: AdhanRecitation.gentleChime) else {
-            // Fallback to system sound
-            NSSound(named: "Tink")?.play()
+            playSystemTinkChime()
             return
         }
 
@@ -78,9 +80,34 @@ final class AdhanPlayer {
             player.prepareToPlay()
             player.play()
             audioPlayer = player
+            currentRecitation = .gentleChime
+            isPlaying = true
+            scheduleChimeEndCleanup(after: max(player.duration, 0.05), player: player)
         } catch {
             AdhanLog.player.error("Chime AVAudioPlayer failed: \(error.localizedDescription, privacy: .public)")
-            NSSound(named: "Tink")?.play()
+            playSystemTinkChime()
+        }
+    }
+
+    private func playSystemTinkChime() {
+        NSSound(named: "Tink")?.play()
+        isPlaying = true
+        currentRecitation = nil
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: 400_000_000)
+            guard let self else { return }
+            if self.audioPlayer == nil {
+                self.isPlaying = false
+            }
+        }
+    }
+
+    private func scheduleChimeEndCleanup(after duration: TimeInterval, player: AVAudioPlayer) {
+        Task { @MainActor [weak self] in
+            let ns = UInt64((duration + 0.08) * 1_000_000_000)
+            try? await Task.sleep(nanoseconds: ns)
+            guard let self, self.audioPlayer === player else { return }
+            self.cleanup()
         }
     }
 
