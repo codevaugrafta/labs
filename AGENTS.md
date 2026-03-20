@@ -15,6 +15,7 @@ This file is read by both Cursor and Claude Code agents.
 - **Run (.app bundle)**: `cd Tiempo && ./build-app.sh && open build/Tiempo.app`
 - **Install to /Applications** (quit Tiempo first): `./Tiempo/scripts/install-to-applications.sh` or `cp -R Tiempo/build/Tiempo.app /Applications/`
 - **If the UI “didn’t change”**: you’re opening an old copy. `swift test` does not update `/Applications/Tiempo.app` — rebuild with `./build-app.sh`, replace the app, quit fully (⌘Q), reopen.
+- **Dock**: `LSUIElement` is **true** in `packaging/Info.plist` — Tiempo does **not** appear in the Dock; use the **menu bar** icon and windows.
 
 ### Adhan (macOS Prayer Times)
 - **Path**: `Adhan/`
@@ -22,6 +23,7 @@ This file is read by both Cursor and Claude Code agents.
 - **Tests**: `cd Adhan && swift test` — 24 tests (PrayerTimesEngine, PrayerTimeEntry + Iqamah, Hijri, mosque URL, recitation fallback, menu bar / AppSettings)
 - **Build app**: `cd Adhan && ./build-app.sh` → `build/Adhan.app` (release)
 - **Logs**: Console filter `subsystem:com.adhan.prayer-times`
+- **Dock**: `LSUIElement` is **true** in `Sources/Resources/Info.plist` — Adhan does **not** appear in the Dock; use the **menu bar** icon.
 - **“Update Swift + app” (Adhan only — not Tiempo)**:
   1. **Swift / SPM**: Keep `Adhan/Package.swift` `swift-tools-version` in sync with your Xcode Swift; run `cd Adhan && swift package update`.
   2. **App bundle**: Bump `Adhan/Sources/Resources/Info.plist` `CFBundleShortVersionString` and `CFBundleVersion` when shipping user-visible changes.

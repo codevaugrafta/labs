@@ -27,7 +27,7 @@
     <key>NSSupportsSuddenTermination</key>
     <false/>
     <key>LSUIElement</key>
-    <false/>
+    <true/>
     <key>NSPrincipalClass</key>
     <string>NSApplication</string>
 </dict>
