@@ -31,6 +31,10 @@ npm run verify
 npm run verify:static   # lint + unit + build
 npm run verify:e2e      # Playwright only — needs prior `npm run build` (or run after `verify:static`)
 
+## Dev URL gotcha (Next.js single lock per repo)
+
+Only **one** `next dev` is allowed per project directory. If you start a second instance (e.g. `PORT=3333 npm run dev` while another is on `:3001`), Next may print a URL then **exit** with *“Another next dev server is already running”* — the port in the first line is not always listening. Use the URL from the **still-running** process, or stop it with the `kill <pid>` hint from the error.
+
 # Override bind URL (use loopback for baseURL — avoid E2E_HOST=0.0.0.0 in the browser)
 E2E_PORT=3005 npm run test:e2e
 

@@ -41,7 +41,7 @@ This file is read by both Cursor and Claude Code agents.
 - **Plan**: `plans/pomodoro.md`
 - **Design / polish contract**: `pomodoro/docs/design-contract.md` (typography, phase affordances, motion, keyboard map)
 - **Agent-driven UI testing**: `pomodoro/docs/agent-testing.md` — prefer **Cursor IDE Browser** MCP (`cursor-ide-browser`) when present in the project MCP descriptors; Playwright + `npm run verify` stay the repeatable CI-style gate; avoid relying on one unbounded agent terminal run.
-- **Tests**: `cd pomodoro && npm test` (unit) · `cd pomodoro && npm run test:e2e:install` once · `npm run verify:e2e` (Playwright + prod server; script picks a free port by default and checks `<title>Pomodoro</title>` so a busy `:3000` cannot silently test the wrong app)
+- **Tests**: `cd pomodoro && npm test` (unit) · `cd pomodoro && npm run test:e2e:install` once · `npm run verify:e2e` (Playwright + prod server; **8 e2e tests** — smoke, user journey, exhaustive settings/timer/export clicks; script picks a free port and checks `<title>Pomodoro</title>` so a busy `:3000` cannot silently test the wrong app)
 - **Full gate**: `cd pomodoro && npm run verify` (lint + unit + build + e2e script)
 - **Split gate** (agent-friendly): `npm run verify:static` then `SKIP_E2E_BUILD=1 npm run verify:e2e`
 - **Dev**: `cd pomodoro && npm run dev`
