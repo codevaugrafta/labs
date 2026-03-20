@@ -1,9 +1,11 @@
 import SwiftUI
 import ServiceManagement
 import UserNotifications
+import AppKit
 
 struct SettingsView: View {
     @Environment(PrayerTimesEngine.self) private var engine
+    @Environment(\.adhanPlayer) private var adhanPlayer
     @Environment(\.openURL) private var openURL
     @State private var launchAtLogin = SMAppService.mainApp.status == .enabled
     @State private var mosqueURLInput = ""
@@ -11,6 +13,7 @@ struct SettingsView: View {
     @State private var fetchStatus = ""
     @State private var notificationStatusSummary = "Checking…"
     @AppStorage(AppSettings.mainWindowTextSizeKey) private var mainWindowTextSize: Int = 1
+    @AppStorage(AppSettings.adhanVolumeKey) private var adhanVolumeStorage: Double = Double(AppSettings.defaultVolume)
 
     var body: some View {
         TabView {
@@ -26,7 +29,28 @@ struct SettingsView: View {
                 .tabItem { Label("General", systemImage: "gear") }
         }
         .frame(width: 520, height: 480)
-        .task { await refreshNotificationAuthorizationSummary() }
+        .task {
+            await refreshNotificationAuthorizationSummary()
+            migrateRecitationKeysToCanonicalIds()
+        }
+    }
+
+    /// One-time normalize so SwiftUI Pickers match `UserDefaults` after legacy ids.
+    private func migrateRecitationKeysToCanonicalIds() {
+        let d = AdhanRecitation.canonicalBundledStoredId(
+            UserDefaults.standard.string(forKey: AppSettings.defaultRecitationKey),
+            forFajr: false
+        )
+        if UserDefaults.standard.string(forKey: AppSettings.defaultRecitationKey) != d {
+            UserDefaults.standard.set(d, forKey: AppSettings.defaultRecitationKey)
+        }
+        let f = AdhanRecitation.canonicalBundledStoredId(
+            UserDefaults.standard.string(forKey: AppSettings.fajrRecitationKey),
+            forFajr: true
+        )
+        if UserDefaults.standard.string(forKey: AppSettings.fajrRecitationKey) != f {
+            UserDefaults.standard.set(f, forKey: AppSettings.fajrRecitationKey)
+        }
     }
 
     // MARK: - Location Tab
@@ -186,7 +210,12 @@ struct SettingsView: View {
         Form {
             Section("Adhan Recitation") {
                 Picker("Default Adhan", selection: Binding(
-                    get: { UserDefaults.standard.string(forKey: AppSettings.defaultRecitationKey) ?? "makkah" },
+                    get: {
+                        AdhanRecitation.canonicalBundledStoredId(
+                            UserDefaults.standard.string(forKey: AppSettings.defaultRecitationKey),
+                            forFajr: false
+                        )
+                    },
                     set: { UserDefaults.standard.set($0, forKey: AppSettings.defaultRecitationKey) }
                 )) {
                     ForEach(AdhanRecitation.bundled.filter { !$0.isForFajr }, id: \.id) { rec in
@@ -195,7 +224,12 @@ struct SettingsView: View {
                 }
 
                 Picker("Fajr Adhan", selection: Binding(
-                    get: { UserDefaults.standard.string(forKey: AppSettings.fajrRecitationKey) ?? "fajr-special" },
+                    get: {
+                        AdhanRecitation.canonicalBundledStoredId(
+                            UserDefaults.standard.string(forKey: AppSettings.fajrRecitationKey),
+                            forFajr: true
+                        )
+                    },
                     set: { UserDefaults.standard.set($0, forKey: AppSettings.fajrRecitationKey) }
                 )) {
                     ForEach(AdhanRecitation.bundled, id: \.id) { rec in
@@ -205,14 +239,46 @@ struct SettingsView: View {
             }
 
             Section("Volume") {
+                HStack {
+                    Text("Adhan volume")
+                    Spacer()
+                    Text("\(Int(adhanVolumeStorage * 100))%")
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
                 Slider(value: Binding(
-                    get: { Double(UserDefaults.standard.object(forKey: AppSettings.adhanVolumeKey) as? Float ?? AppSettings.defaultVolume) },
-                    set: { UserDefaults.standard.set(Float($0), forKey: AppSettings.adhanVolumeKey) }
+                    get: { adhanVolumeStorage },
+                    set: { newValue in
+                        adhanVolumeStorage = newValue
+                        adhanPlayer?.volume = Float(newValue)
+                    }
                 ), in: 0...1) {
                     Text("Adhan Volume")
                 }
 
-                Text("Independent of system volume")
+                HStack {
+                    Button("Preview default Adhan") {
+                        let stored = UserDefaults.standard.string(forKey: AppSettings.defaultRecitationKey)
+                        let rec = AdhanRecitation.resolveBundled(storedId: stored, forFajr: false)
+                        adhanPlayer?.play(recitation: rec)
+                    }
+                    .disabled(adhanPlayer == nil)
+
+                    Button("Preview Fajr Adhan") {
+                        let stored = UserDefaults.standard.string(forKey: AppSettings.fajrRecitationKey)
+                        let rec = AdhanRecitation.resolveBundled(storedId: stored, forFajr: true)
+                        adhanPlayer?.play(recitation: rec)
+                    }
+                    .disabled(adhanPlayer == nil)
+                }
+
+                if let url = Bundle.main.url(forResource: "ATTRIBUTION", withExtension: "md", subdirectory: "Audio") {
+                    Button("Show audio credits (ATTRIBUTION.md)…") {
+                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                    }
+                }
+
+                Text("Independent of system volume. Bundled Adhan is CC BY-SA 4.0 — credits live inside the app: Adhan.app → Contents → Resources → Audio → ATTRIBUTION.md.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

@@ -142,16 +142,22 @@ struct AdhanRecitationTests {
     @Test("Invalid stored recitation id falls back to bundled default")
     func invalidIdFallsBack() {
         let dhuhr = AdhanRecitation.resolveBundled(storedId: "not-a-real-id", forFajr: false)
-        #expect(dhuhr.id == "makkah")
+        #expect(dhuhr.id == "wikimedia-andrewler")
 
         let fajr = AdhanRecitation.resolveBundled(storedId: "bogus", forFajr: true)
-        #expect(fajr.id == "fajr-special")
+        #expect(fajr.id == "wikimedia-andrewler-fajr")
     }
 
     @Test("Nil stored id uses canonical default ids")
     func nilStoredUsesDefaults() {
-        #expect(AdhanRecitation.resolveBundled(storedId: nil, forFajr: false).id == "makkah")
-        #expect(AdhanRecitation.resolveBundled(storedId: nil, forFajr: true).id == "fajr-special")
+        #expect(AdhanRecitation.resolveBundled(storedId: nil, forFajr: false).id == "wikimedia-andrewler")
+        #expect(AdhanRecitation.resolveBundled(storedId: nil, forFajr: true).id == "wikimedia-andrewler-fajr")
+    }
+
+    @Test("Legacy recitation ids map to open-license bundled track")
+    func legacyRecitationAliases() {
+        #expect(AdhanRecitation.resolveBundled(storedId: "makkah", forFajr: false).id == "wikimedia-andrewler")
+        #expect(AdhanRecitation.resolveBundled(storedId: "fajr-special", forFajr: true).id == "wikimedia-andrewler-fajr")
     }
 }
 

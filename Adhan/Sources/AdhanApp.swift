@@ -53,6 +53,7 @@ struct AdhanApp: App {
         Settings {
             SettingsView()
                 .environment(engine)
+                .environment(\.adhanPlayer, appDelegate.adhanPlayer)
         }
     }
 }

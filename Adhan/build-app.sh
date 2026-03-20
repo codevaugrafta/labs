@@ -49,6 +49,10 @@ fi
 if ls Sources/Resources/Audio/*.caf &>/dev/null 2>&1; then
     cp Sources/Resources/Audio/*.caf "${APP_BUNDLE}/Contents/Resources/Audio/"
 fi
+if [ -f "Sources/Resources/Audio/ATTRIBUTION.md" ]; then
+    cp Sources/Resources/Audio/ATTRIBUTION.md "${APP_BUNDLE}/Contents/Resources/Audio/"
+    echo "  Copied audio attribution"
+fi
 
 # Create PkgInfo
 echo -n "APPL????" > "${APP_BUNDLE}/Contents/PkgInfo"

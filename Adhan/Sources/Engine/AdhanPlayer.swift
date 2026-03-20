@@ -14,9 +14,17 @@ final class AdhanPlayer {
     private var fadeTimer: Timer?
 
     var volume: Float {
-        get { UserDefaults.standard.object(forKey: AppSettings.adhanVolumeKey) as? Float ?? AppSettings.defaultVolume }
+        get {
+            guard let any = UserDefaults.standard.object(forKey: AppSettings.adhanVolumeKey) else {
+                return AppSettings.defaultVolume
+            }
+            if let d = any as? Double { return Float(d) }
+            if let f = any as? Float { return f }
+            if let n = any as? NSNumber { return n.floatValue }
+            return AppSettings.defaultVolume
+        }
         set {
-            UserDefaults.standard.set(newValue, forKey: AppSettings.adhanVolumeKey)
+            UserDefaults.standard.set(Double(newValue), forKey: AppSettings.adhanVolumeKey)
             audioPlayer?.volume = newValue
         }
     }
@@ -109,13 +117,7 @@ final class AdhanPlayer {
                 return URL(fileURLWithPath: bundlePath)
             }
 
-            // Check Application Support directory
-            let appSupport = applicationSupportURL()
-            let fileURL = appSupport.appendingPathComponent(recitation.filename)
-            if FileManager.default.fileExists(atPath: fileURL.path) {
-                return fileURL
-            }
-
+            // Bundled recitations must come from the signed app bundle (no App Support override — supply chain clarity).
             return nil
         } else {
             // Custom audio file in Application Support
