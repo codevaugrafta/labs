@@ -17,6 +17,8 @@ final class PrayerTimesEngine {
 
     /// Calculated Fajr for the next Gregorian day (used when today's obligatory prayers have all begun).
     private(set) var tomorrowFajrBegin: Date?
+    /// Mosque Iqamah for tomorrow's Fajr when `tomorrowFajrBegin` comes from cache (nil for calculated-only).
+    private(set) var tomorrowFajrIqamah: Date?
 
     let hijriEngine = HijriDateEngine()
 
@@ -88,6 +90,7 @@ final class PrayerTimesEngine {
             todayEntries = []
             nextPrayer = nil
             tomorrowFajrBegin = nil
+            tomorrowFajrIqamah = nil
             return
         }
 
@@ -103,8 +106,10 @@ final class PrayerTimesEngine {
            let mosqueTomorrow = mosqueCache?.dayCache(guid: guid, for: tomorrowDate),
            let mosqueFajr = mosqueTomorrow.beginDate(for: .fajr) {
             tomorrowFajrBegin = mosqueFajr
+            tomorrowFajrIqamah = mosqueTomorrow.iqamahDate(for: .fajr)
         } else {
             tomorrowFajrBegin = calculatedTomorrowFajr
+            tomorrowFajrIqamah = nil
         }
 
         // Build entries — prefer mosque begin times over calculated times when available
@@ -196,9 +201,19 @@ final class PrayerTimesEngine {
             lastError = "Could not extract mosque ID from URL"
             return false
         }
-        mosqueGuid = guid
+        let previousStored = UserDefaults.standard.string(forKey: AppSettings.mosqueGuidKey)
+        UserDefaults.standard.set(guid, forKey: AppSettings.mosqueGuidKey)
         await fetchMosqueTimes()
-        return lastError == nil
+        guard lastError == nil else {
+            if let previousStored {
+                UserDefaults.standard.set(previousStored, forKey: AppSettings.mosqueGuidKey)
+            } else {
+                UserDefaults.standard.removeObject(forKey: AppSettings.mosqueGuidKey)
+            }
+            recalculate()
+            return false
+        }
+        return true
     }
 
     // MARK: - Friday / Ramadan
@@ -228,7 +243,12 @@ final class PrayerTimesEngine {
         if let nextToday = future.first {
             nextPrayer = nextToday
         } else if let tf = tomorrowFajrBegin {
-            nextPrayer = PrayerTimeEntry(prayer: .fajr, adhanTime: tf, idSuffix: "nextDay")
+            nextPrayer = PrayerTimeEntry(
+                prayer: .fajr,
+                adhanTime: tf,
+                iqamahTime: tomorrowFajrIqamah,
+                idSuffix: "nextDay"
+            )
         } else {
             nextPrayer = nil
         }

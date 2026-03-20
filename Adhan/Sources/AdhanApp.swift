@@ -223,10 +223,8 @@ class AdhanAppDelegate: NSObject, NSApplicationDelegate {
                 // Recalculate for the new day
                 engine.recalculate()
 
-                // Re-fetch mosque times
-                Task {
-                    await engine.fetchMosqueTimes()
-                }
+                // Re-fetch mosque times before alarms/notifications so schedules use fresh cache.
+                await engine.fetchMosqueTimes()
 
                 // Reschedule prayer alarms and notifications
                 self.prayerScheduler.reschedule()
