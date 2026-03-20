@@ -7,10 +7,13 @@ alwaysApply: true
 # General Rules
 
 ## Workflow
-- Read before modify. Search before assume. Test after implement.
+- Read before modify. Search before assume. **Test and verify after implement**—do not claim a fix or feature is done until commands have been run and pass.
 - Small commits (<100 lines). Conventional commit messages with WHY.
 - Never break existing tests.
-- Run tests after every change: `swift test` (Tiempo) or `npm test` (web projects).
+- Run the project’s verification after substantive changes:
+  - **Tiempo / Adhan**: `swift test` (and `swift build` if you touched app targets).
+  - **Pomodoro**: `cd pomodoro && npm run verify:static` on tight loops; **`npm run verify`** (adds Playwright e2e) before merge or when claiming full green.
+  - **Other JS/TS**: `npm test` or the repo’s documented verify script if present.
 
 ## Code Quality
 - Review AI code as if a junior wrote it.

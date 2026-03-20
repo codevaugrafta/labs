@@ -1,0 +1,63 @@
+# Gate: lint + unit + production build + Playwright (Chromium) against `next start`.
+name: Pomodoro
+
+on:
+  push:
+    paths:
+      - "pomodoro/**"
+      - ".github/workflows/pomodoro.yml"
+  pull_request:
+    paths:
+      - "pomodoro/**"
+      - ".github/workflows/pomodoro.yml"
+
+defaults:
+  run:
+    working-directory: pomodoro
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      actions: write # upload-artifact on failure
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: pomodoro/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium --with-deps
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Production build
+        run: npm run build
+
+      - name: E2E (Playwright)
+        run: npm run verify:e2e
+        env:
+          CI: true
+          SKIP_E2E_BUILD: "1"
+
+      - name: Upload Playwright report (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            pomodoro/playwright-report/
+            pomodoro/test-results/
+          if-no-files-found: ignore

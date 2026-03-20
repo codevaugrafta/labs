@@ -32,6 +32,28 @@ This file is read by both Cursor and Claude Code agents.
 - **Path**: `syncreader/`
 - **Stack**: Tauri, Svelte 5, TypeScript
 
+### Pomodoro (Web focus timer)
+- **Path**: `pomodoro/`
+- **Stack**: Next.js 16, React 19, TypeScript, shadcn/ui, Geist, IndexedDB (`idb`), Vitest, Playwright
+- **PRD**: `PRD-POMODORO.md`
+- **Plan**: `plans/pomodoro.md`
+- **Design / polish contract**: `pomodoro/docs/design-contract.md` (typography, phase affordances, motion, keyboard map)
+- **Agent-driven UI testing**: `pomodoro/docs/agent-testing.md` — prefer **Cursor IDE Browser** MCP (`cursor-ide-browser`) when present in the project MCP descriptors; Playwright + `npm run verify` stay the repeatable CI-style gate; avoid relying on one unbounded agent terminal run.
+- **Tests**: `cd pomodoro && npm test` (unit) · `cd pomodoro && npm run test:e2e:install` once · `npm run verify:e2e` (Playwright + prod server; script picks a free port by default and checks `<title>Pomodoro</title>` so a busy `:3000` cannot silently test the wrong app)
+- **Full gate**: `cd pomodoro && npm run verify` (lint + unit + build + e2e script)
+- **Split gate** (agent-friendly): `npm run verify:static` then `SKIP_E2E_BUILD=1 npm run verify:e2e`
+- **Dev**: `cd pomodoro && npm run dev`
+
+## Learned User Preferences
+- Prefer running commands and automated tests in the repo over giving instructions-only replies when the environment allows shell access.
+- When discussing interactive UI verification, distinguish this chat’s tool surface from Cursor Agent Browser, Playwright in CI, and long-running cloud agents unless the user’s plan explicitly includes those.
+- Before stating that a capability is unavailable in-session, check workspace MCP tool descriptors (e.g. `cursor-ide-browser`) rather than relying only on the short server list in a system prompt.
+- When the user reports no visible change in a macOS app, verify whether they are using `/Applications/…`, `swift run`, or a freshly built `.app`, and align with the rebuild/install notes in this file.
+
+## Learned Workspace Facts
+- Pomodoro `scripts/run-e2e-with-server.sh` defaults to an ephemeral listen port and requires `<title>Pomodoro</title>` in the response so e2e cannot pass against an unrelated process on a fixed port.
+- Cursor documents long-running and background agents separately from a normal in-editor agent chat; access and behavior depend on plan and product surface, not a single universal mode.
+
 ## Architecture (Tiempo)
 
 ```
@@ -60,7 +82,7 @@ Tiempo/Sources/
 
 ## Rules
 - Read file before modifying it
-- Run `swift test` after changes — all 50 tests must pass
+- Run `swift test` after Tiempo/Adhan changes — all tests in the touched project must pass (Tiempo: see count under that project above)
 - Never break existing tests
 - Conventional commits: `feat(phase-N):`, `fix:`, `refactor:`
 - Small changes (<100 lines per commit)
