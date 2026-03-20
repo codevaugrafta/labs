@@ -6,12 +6,27 @@ This file is read by both Cursor and Claude Code agents.
 
 ### Tiempo (macOS Time Tracker)
 - **Path**: `Tiempo/`
-- **Stack**: Swift 6, SwiftUI, SwiftData, Swift Charts
+- **Stack**: Swift 6.2+ (swift-tools-version 6.2), SwiftUI, SwiftData, Swift Charts
 - **PRD**: `PRD-TIEMPO.md` (82 user stories, reviewed 3x)
 - **Plan**: `plans/tiempo.md` (10 phases, 8 complete locally)
-- **Tests**: `cd Tiempo && swift test` — 50 tests across 7 suites
+- **Tests**: `cd Tiempo && swift test` — 78 tests across 10 suites
 - **Build**: `cd Tiempo && swift build`
-- **Run**: `cd Tiempo && swift build -c release && open .build/release/Tiempo`
+- **Run (dev binary, always matches last compile)**: `cd Tiempo && swift run Tiempo`
+- **Run (.app bundle)**: `cd Tiempo && ./build-app.sh && open build/Tiempo.app`
+- **Install to /Applications** (quit Tiempo first): `./Tiempo/scripts/install-to-applications.sh` or `cp -R Tiempo/build/Tiempo.app /Applications/`
+- **If the UI “didn’t change”**: you’re opening an old copy. `swift test` does not update `/Applications/Tiempo.app` — rebuild with `./build-app.sh`, replace the app, quit fully (⌘Q), reopen.
+
+### Adhan (macOS Prayer Times)
+- **Path**: `Adhan/`
+- **Stack**: Swift 6.2+ (swift-tools-version 6.2), SwiftUI, SwiftData, adhan-swift (pinned revision), AVFoundation, UserNotifications
+- **Tests**: `cd Adhan && swift test` — 16 tests (PrayerTimesEngine, PrayerTimeEntry + Iqamah, Hijri, mosque URL, recitation fallback)
+- **Build app**: `cd Adhan && ./build-app.sh` → `build/Adhan.app` (release)
+- **Logs**: Console filter `subsystem:com.adhan.prayer-times`
+- **“Update Swift + app” (Adhan only — not Tiempo)**:
+  1. **Swift / SPM**: Keep `Adhan/Package.swift` `swift-tools-version` in sync with your Xcode Swift; run `cd Adhan && swift package update`.
+  2. **App bundle**: Bump `Adhan/Sources/Resources/Info.plist` `CFBundleShortVersionString` and `CFBundleVersion` when shipping user-visible changes.
+  3. **Ship**: `cd Adhan && swift test && ./build-app.sh`, then replace `Adhan.app` in `/Applications/` (quit Adhan first).
+  4. **Do not use `swift run` to verify menu-bar / notification behavior** — `Bundle.main` points at `.build/…`, not `Adhan.app`. Use `./run-app.sh` or `open build/Adhan.app` (or `/Applications/Adhan.app`). The menu’s first row shows version and `Adhan.app` vs `debug / swift run`.
 
 ### SyncReader (Tauri + Svelte)
 - **Path**: `syncreader/`
