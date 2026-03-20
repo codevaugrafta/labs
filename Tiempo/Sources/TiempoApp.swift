@@ -133,9 +133,9 @@ class TiempoAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Make the app a proper foreground application so text fields receive keyboard focus
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
+        // Must match LSUIElement in Info.plist — .regular overrides it and forces a Dock icon.
+        NSApp.setActivationPolicy(.accessory)
+        // Do not activate at launch; menu bar + "Show Main Window" calls activate when needed for focus.
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -162,7 +162,8 @@ class TiempoAppDelegate: NSObject, NSApplicationDelegate {
 
     /// Returns `nil` if the event was handled (do not propagate).
     private func handleLocalKeyDown(_ event: NSEvent) -> NSEvent? {
-        guard NSApp.isActive else { return event }
+        // Accessory apps are often not "active" while a window still has key — match Adhan’s guard.
+        guard NSApp.isActive || NSApp.keyWindow != nil else { return event }
         if Self.keyWindowHasTextFocus() { return event }
 
         let mods = event.modifierFlags.intersection(.deviceIndependentFlagsMask)

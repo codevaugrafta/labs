@@ -124,9 +124,9 @@ class AdhanAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Regular activation so the app can become key/main, SwiftUI menu commands work, and the local
-        // key monitor runs while a window or panel is focused (accessory + isActive stays false too often).
-        NSApp.setActivationPolicy(.regular)
+        // Must match LSUIElement in Info.plist — .regular overrides it and forces a Dock icon.
+        // Windows still become key after NSApp.activate (see MenuBarManager / Open Settings).
+        NSApp.setActivationPolicy(.accessory)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
