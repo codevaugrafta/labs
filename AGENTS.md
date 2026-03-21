@@ -40,7 +40,7 @@ This file is read by both Cursor and Claude Code agents.
 - **Dock**: `LSUIElement` is **true** in `packaging/Info.plist` — use the **menu bar**; `LoveAppDelegate` uses `.accessory` (same rule as Tiempo/Adhan: do not force `.regular`).
 - **Global quick capture**: ⌃⌥L via `NSEvent.addGlobalMonitorForEvents` — may require **Accessibility** for Love in System Settings.
 - **Bundle id**: `com.franciscodilussor.love` — distinct from any prior `focuspath` bundle; on-disk store migrates from `Application Support/FocusPath/` when `Love.store` is missing.
-- **Optional app icon (Gemini)**: `cd Love && export GEMINI_API_KEY=... && python3 scripts/generate_app_icon_gemini.py` writes `build/AppIcon.icns`; `./build-app.sh` copies it into the bundle when present. Offline fallback: `swift build/create-icon.swift` + `iconutil` (as in `build-app.sh`).
+- **Optional app icon (Gemini)**: `cd Love && export GEMINI_API_KEY=... && python3 scripts/generate_app_icon_gemini.py` writes `build/AppIcon.icns`; `./build-app.sh` copies it into the bundle when present. Offline fallback: `swift scripts/create-icon.swift` + `iconutil` (as in `build-app.sh`).
 
 ### SyncReader (Tauri + Svelte)
 - **Path**: `syncreader/`

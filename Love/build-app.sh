@@ -19,7 +19,7 @@ if [ -f build/AppIcon.icns ]; then
     cp build/AppIcon.icns build/Love.app/Contents/Resources/AppIcon.icns
 elif [ ! -f build/Love.app/Contents/Resources/AppIcon.icns ]; then
     echo "Generating app icon (offline)..."
-    swift build/create-icon.swift
+    swift scripts/create-icon.swift
     iconutil -c icns build/AppIcon.iconset -o build/Love.app/Contents/Resources/AppIcon.icns
 fi
 
