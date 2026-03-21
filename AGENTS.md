@@ -30,13 +30,26 @@ This file is read by both Cursor and Claude Code agents.
   3. **Ship**: `cd Adhan && swift test && ./build-app.sh`, then replace `Adhan.app` in `/Applications/` (quit Adhan first).
   4. **Do not use `swift run` to verify menu-bar / notification behavior** — `Bundle.main` points at `.build/…`, not `Adhan.app`. Use `./run-app.sh` or `open build/Adhan.app` (or `/Applications/Adhan.app`). The menu’s first row shows version and `Adhan.app` vs `debug / swift run`.
 
+### Love (macOS must-do + later drawer)
+- **Path**: `Love/`
+- **Stack**: Swift 6.2+ (swift-tools-version 6.2), SwiftUI, SwiftData, menu bar `NSStatusItem`
+- **PRD**: `Love/PRD.md` (filed as GitHub issue from that document)
+- **Tests**: `cd Love && swift test` — engine tests (focus, buckets, captures, snooze)
+- **Build**: `cd Love && swift build`
+- **Run (.app bundle)**: `cd Love && ./build-app.sh && open build/Love.app`
+- **Dock**: `LSUIElement` is **true** in `packaging/Info.plist` — use the **menu bar**; `LoveAppDelegate` uses `.accessory` (same rule as Tiempo/Adhan: do not force `.regular`).
+- **Global quick capture**: ⌃⌥L via `NSEvent.addGlobalMonitorForEvents` — may require **Accessibility** for Love in System Settings.
+- **Bundle id**: `com.franciscodilussor.love` — distinct from any prior `focuspath` bundle; on-disk store migrates from `Application Support/FocusPath/` when `Love.store` is missing.
+- **Optional app icon (Gemini)**: `cd Love && export GEMINI_API_KEY=... && python3 scripts/generate_app_icon_gemini.py` writes `build/AppIcon.icns`; `./build-app.sh` copies it into the bundle when present. Offline fallback: `swift build/create-icon.swift` + `iconutil` (as in `build-app.sh`).
+
 ### SyncReader (Tauri + Svelte)
 - **Path**: `syncreader/`
 - **Stack**: Tauri, Svelte 5, TypeScript
 
-### Pomodoro (Web focus timer)
+### Pomodoro (Reference web timer)
 - **Path**: `pomodoro/`
 - **Stack**: Next.js 16, React 19, TypeScript, shadcn/ui, Geist, IndexedDB (`idb`), Vitest, Playwright
+- **Status**: Reference / donor app for timer architecture, persistence patterns, and e2e structure. New merged product work should go into `focus-node/`, not a parallel second focus app.
 - **PRD**: `PRD-POMODORO.md`
 - **Plan**: `plans/pomodoro.md`
 - **Design / polish contract**: `pomodoro/docs/design-contract.md` (typography, phase affordances, motion, keyboard map)
@@ -46,14 +59,25 @@ This file is read by both Cursor and Claude Code agents.
 - **Split gate** (agent-friendly): `npm run verify:static` then `SKIP_E2E_BUILD=1 npm run verify:e2e`
 - **Dev**: `cd pomodoro && npm run dev`
 
+### Focus Node (Merged focus product)
+- **Path**: `focus-node/`
+- **Stack**: Vite 6, React 19, TypeScript, Tailwind CSS 4, `motion/react`, D3, Vitest, Playwright
+- **Purpose**: Single merged focus product that absorbs the Pomodoro engine / test patterns into the former Google AI Studio Focus Node prototype.
+- **Tests**: `cd focus-node && npm test` (Vitest engine tests) · `npm run test:e2e -- e2e/smoke.spec.ts e2e/focus-flow.spec.ts` (Playwright desktop + mobile flow checks)
+- **Full gate**: `cd focus-node && npm run verify`
+- **Dev**: `cd focus-node && npm run dev` (port `3001`)
+- **Product boundary**: Keep the app centered on task planning, Pomodoro focus sessions, and browser-tested UX. The Gemini-powered `ThinkingMode` panel was intentionally removed because it distracted from the core app.
+
 ## Learned User Preferences
 - Prefer running commands and automated tests in the repo over giving instructions-only replies when the environment allows shell access.
-- When discussing interactive UI verification, distinguish this chat’s tool surface from Cursor Agent Browser, Playwright in CI, and long-running cloud agents unless the user’s plan explicitly includes those.
+- For web apps, verify UX in a real browser when MCP browser tools are available; native macOS SwiftUI apps (Tiempo, Adhan, Love) are not driven by browser automation in chat—combine `swift test` / local `.app` builds with manual UI review or XCUITest instead of implying click-through coverage from the agent alone.
 - Before stating that a capability is unavailable in-session, check workspace MCP tool descriptors (e.g. `cursor-ide-browser`) rather than relying only on the short server list in a system prompt.
 - When the user reports no visible change in a macOS app, verify whether they are using `/Applications/…`, `swift run`, or a freshly built `.app`, and align with the rebuild/install notes in this file.
 
 ## Learned Workspace Facts
 - Pomodoro `scripts/run-e2e-with-server.sh` defaults to an ephemeral listen port and requires `<title>Pomodoro</title>` in the response so e2e cannot pass against an unrelated process on a fixed port.
+- Pomodoro / Next.js allows only one `next dev` per project directory; a second instance can print a URL and then exit, so kill stale servers first and trust the still-running process.
+- `focus-node/` is the merged successor for current focus-product work; use `pomodoro/` as a reference implementation, not as a second live app to evolve in parallel.
 - Cursor documents long-running and background agents separately from a normal in-editor agent chat; access and behavior depend on plan and product surface, not a single universal mode.
 
 ## Architecture (Tiempo)
