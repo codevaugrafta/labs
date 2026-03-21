@@ -106,4 +106,26 @@ struct LoveEngineTests {
         item.snoozeUntil = start
         #expect(item.isSnoozed())
     }
+
+    @Test("clearLastError clears save error banner state")
+    @MainActor
+    func clearLastErrorClears() throws {
+        let (engine, _) = try makeEngine()
+        engine.lastError = "Could not save"
+        engine.clearLastError()
+        #expect(engine.lastError == nil)
+    }
+}
+
+@Suite("LoveDataMigration")
+struct LoveDataMigrationTests {
+    @Test("consumePendingUserFacingFailure returns once and clears UserDefaults")
+    func consumeClearsKey() {
+        let key = LoveDataMigration.pendingFailureUserDefaultsKey
+        UserDefaults.standard.set("migration test message", forKey: key)
+        let first = LoveDataMigration.consumePendingUserFacingFailure()
+        #expect(first == "migration test message")
+        #expect(UserDefaults.standard.string(forKey: key) == nil)
+        #expect(LoveDataMigration.consumePendingUserFacingFailure() == nil)
+    }
 }

@@ -43,10 +43,10 @@ struct LoveApp: App {
     var body: some Scene {
         WindowGroup {
             AppBootstrapView(engine: engine, appDelegate: appDelegate)
-                .frame(minWidth: 520, minHeight: 480)
+                .frame(minWidth: 560, minHeight: 520)
         }
         .modelContainer(Self.modelContainer)
-        .defaultSize(width: 640, height: 560)
+        .defaultSize(width: 780, height: 640)
         .commands {
             CommandGroup(after: .newItem) {
                 Button("Quick capture") {
@@ -67,11 +67,25 @@ struct AppBootstrapView: View {
     let engine: LoveEngine
     let appDelegate: LoveAppDelegate
 
+    @State private var migrationFailureMessage: String?
+    @State private var showMigrationAlert = false
+
     var body: some View {
         ContentView(engine: engine)
+            .background(LoveWindowBackdrop())
+            .tint(LoveTheme.accent)
             .onAppear {
+                if let pending = LoveDataMigration.consumePendingUserFacingFailure() {
+                    migrationFailureMessage = pending
+                    showMigrationAlert = true
+                }
                 engine.configure(with: modelContext)
                 appDelegate.wireUp(engine: engine, modelContainer: LoveApp.modelContainer)
+            }
+            .alert("Couldn’t migrate old data", isPresented: $showMigrationAlert) {
+                Button("OK", role: .cancel) {}
+            } message: {
+                Text(migrationFailureMessage ?? "")
             }
     }
 }

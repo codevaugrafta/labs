@@ -36,10 +36,11 @@ This file is read by both Cursor and Claude Code agents.
 - **PRD**: `Love/PRD.md` (filed as GitHub issue from that document)
 - **Tests**: `cd Love && swift test` — engine tests (focus, buckets, captures, snooze)
 - **Build**: `cd Love && swift build`
-- **Run (.app bundle)**: `cd Love && ./build-app.sh && open build/Love.app`
-- **Dock**: `LSUIElement` is **true** in `packaging/Info.plist` — use the **menu bar**; `LoveAppDelegate` uses `.accessory` (same rule as Tiempo/Adhan: do not force `.regular`).
+- **Run (.app bundle)**: `cd Love && ./build-app.sh && open build/Love.app` — the app lives under **`Love/build/`** in the repo until you install it; it is **not** in `/Applications/` until you copy it there.
+- **Install to /Applications** (shows in Launchpad / Spotlight “Applications”): quit Love, then `./Love/scripts/install-to-applications.sh` or `cp -R Love/build/Love.app /Applications/` and `open -a Love`.
+- **Dock**: `LSUIElement` is **true** — Love **does not appear in the Dock** (same pattern as Tiempo/Adhan). After launch, use the **menu bar** (right side) **heart** icon; **Show main window** is **⌘O** from that menu. `LoveAppDelegate` uses `.accessory` — do not force `.regular` if you want to keep the Dock hidden.
 - **Global quick capture**: ⌃⌥L via `NSEvent.addGlobalMonitorForEvents` — may require **Accessibility** for Love in System Settings.
-- **Bundle id**: `com.franciscodilussor.love` — distinct from any prior `focuspath` bundle; on-disk store migrates from `Application Support/FocusPath/` when `Love.store` is missing.
+- **Bundle id**: `com.franciscodilussor.love` — distinct from any prior `focuspath` bundle; on-disk store migrates from `Application Support/FocusPath/` when `Love.store` is missing. Failed migration is **logged** (`subsystem:com.franciscodilussor.love`, category `migration`) and surfaces a **one-shot alert**; save failures show **`LoveSaveErrorBanner`** in the **main window** and **Quick capture** (panel stays open on failed save so text isn’t lost; dismiss calls `clearLastError()`).
 - **Optional app icon (Gemini)**: `cd Love && export GEMINI_API_KEY=... && python3 scripts/generate_app_icon_gemini.py` writes `build/AppIcon.icns`; `./build-app.sh` copies it into the bundle when present. Offline fallback: `swift scripts/create-icon.swift` + `iconutil` (as in `build-app.sh`).
 
 ### SyncReader (Tauri + Svelte)

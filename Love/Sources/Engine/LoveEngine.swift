@@ -244,6 +244,11 @@ final class LoveEngine {
         save()
     }
 
+    /// Clears the last save error after the user dismisses the in-app banner.
+    func clearLastError() {
+        lastError = nil
+    }
+
     // MARK: - Save
 
     func save() {

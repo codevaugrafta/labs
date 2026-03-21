@@ -9,7 +9,14 @@ final class MenuBarManager {
 
     func setup(engine: LoveEngine) {
         self.engine = engine
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem = item
+        if let button = item.button {
+            let img = NSImage(systemSymbolName: "heart.circle.fill", accessibilityDescription: "Love")
+            img?.isTemplate = true
+            button.image = img
+            button.imagePosition = .imageLeading
+        }
         buildMenu()
         updateTitle()
     }

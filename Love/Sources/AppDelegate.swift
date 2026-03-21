@@ -48,6 +48,14 @@ final class LoveAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        // LSUIElement: no Dock icon — look for the heart in the menu bar. Bring main window forward once at launch.
+        DispatchQueue.main.async {
+            NSApp.activate(ignoringOtherApps: true)
+            for window in NSApp.windows where window.isVisible && !(window is NSPanel) && window.canBecomeKey {
+                window.makeKeyAndOrderFront(nil)
+                break
+            }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

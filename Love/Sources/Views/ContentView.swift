@@ -27,13 +27,21 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                Picker("", selection: $selectedTab) {
-                    ForEach(MainTab.allCases, id: \.rawValue) { tab in
-                        Text(tab.rawValue).tag(tab)
+                if let err = engine.lastError {
+                    LoveSaveErrorBanner(message: err) {
+                        engine.clearLastError()
                     }
                 }
-                .pickerStyle(.segmented)
-                .padding()
+                LoveTabRail {
+                    Picker("", selection: $selectedTab) {
+                        ForEach(MainTab.allCases, id: \.rawValue) { tab in
+                            Text(tab.rawValue).tag(tab)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 340)
+                }
+                .padding(.vertical, 12)
 
                 if selectedTab == .mustDo {
                     mustDoPane
@@ -42,8 +50,21 @@ struct ContentView: View {
                 }
             }
             .animation(FeedbackPolicy.listTransition(reduceMotion: reduceMotion), value: selectedTab)
-            .navigationTitle("Love")
+            .navigationTitle("")
+            .toolbarBackground(.visible, for: .windowToolbar)
+            .toolbarBackground(.ultraThinMaterial, for: .windowToolbar)
             .toolbar {
+                ToolbarItem(placement: .principal) {
+                    VStack(spacing: 4) {
+                        Text("Love")
+                            .font(LoveTypography.brandTitle)
+                            .foregroundStyle(.primary)
+                        Text("One focus · calm later drawer")
+                            .font(LoveTypography.brandTagline)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.top, 2)
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         NotificationCenter.default.post(name: .loveQuickCapture, object: nil)
@@ -70,39 +91,52 @@ struct ContentView: View {
     }
 
     private var mustDoPane: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(alignment: .center) {
                 Picker("Scope", selection: $listFilter) {
                     ForEach(MainListFilter.allCases, id: \.self) { f in
                         Text(f.rawValue).tag(f)
                     }
                 }
                 .pickerStyle(.segmented)
-                .frame(maxWidth: 480)
+                .frame(maxWidth: 440)
 
-                Spacer()
+                Spacer(minLength: 12)
 
-                Button("Add section") {
+                Button {
                     newSectionName = ""
                     showAddSection = true
+                } label: {
+                    Label("Add section", systemImage: "folder.badge.plus")
                 }
+                .labelStyle(.titleAndIcon)
             }
-            .padding(.horizontal)
+            .padding(.horizontal, LoveTheme.contentGutter)
 
-            HStack(alignment: .firstTextBaseline) {
+            HStack(alignment: .firstTextBaseline, spacing: 12) {
                 TextField("New must-do…", text: $newTaskTitle)
-                    .textFieldStyle(.roundedBorder)
+                    .textFieldStyle(.plain)
+                    .font(.body)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: LoveTheme.controlCorner, style: .continuous))
                     .onSubmit(addTaskFromField)
                 Picker("Section", selection: $newTaskSectionID) {
                     ForEach(sections, id: \.id) { s in
                         Text(s.name).tag(Optional(s.id))
                     }
                 }
-                .frame(minWidth: 120)
+                .frame(minWidth: 128, maxWidth: 180)
                 Button("Add") { addTaskFromField() }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.regular)
                     .disabled(newTaskTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || newTaskSectionID == nil)
             }
-            .padding(.horizontal)
+            .padding(16)
+            .background {
+                LoveComposerChrome()
+            }
+            .padding(.horizontal, LoveTheme.contentGutter)
 
             List {
                 ForEach(sections) { section in
@@ -116,13 +150,21 @@ struct ContentView: View {
                                 engine.moveItems(in: section, activeOrdered: items, fromOffsets: source, toOffset: dest)
                             }
                         } header: {
-                            Text(section.name)
-                                .font(.headline)
+                            HStack(spacing: 8) {
+                                LoveAccentRule(width: 28)
+                                Text(section.name)
+                                    .font(LoveTypography.sectionHeader)
+                                    .textCase(.none)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.bottom, 2)
                         }
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
             .listStyle(.inset(alternatesRowBackgrounds: true))
+            .listRowSeparator(.hidden)
         }
     }
 
@@ -134,18 +176,20 @@ struct ContentView: View {
             .sorted { $0.sortOrder < $1.sortOrder }
     }
 
-    @ViewBuilder
     private func mustDoRow(_ item: MustDoItem) -> some View {
         let isFocus = engine.focusedItemID == item.id
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: isFocus ? "largecircle.fill.circle" : "circle")
-                .foregroundStyle(isFocus ? Color.accentColor : .secondary)
-                .imageScale(.medium)
+        return HStack(alignment: .top, spacing: 12) {
+            Image(systemName: isFocus ? "circle.inset.filled" : "circle")
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(isFocus ? LoveTheme.accent : .secondary, .secondary)
+                .imageScale(.large)
+                .accessibilityLabel(isFocus ? "Focused must-do" : "Must-do")
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text(item.title)
-                    .fontWeight(isFocus ? .semibold : .regular)
-                HStack(spacing: 8) {
+                    .font(isFocus ? LoveTypography.mustDoTitleFocus : LoveTypography.mustDoTitle)
+                    .foregroundStyle(.primary)
+                HStack(spacing: 10) {
                     Picker("", selection: Binding(
                         get: { item.planningBucket },
                         set: { engine.setPlanningBucket(item, bucket: $0) }
@@ -155,18 +199,20 @@ struct ContentView: View {
                         }
                     }
                     .labelsHidden()
-                    .frame(width: 130)
+                    .frame(width: 132)
 
                     if item.snoozeUntil != nil {
                         Button("Clear snooze") {
                             engine.clearSnooze(item)
                         }
                         .font(.caption)
+                        .buttonStyle(.borderless)
                     } else {
                         Button("Tomorrow") {
                             engine.deferToTomorrow(item)
                         }
                         .font(.caption)
+                        .buttonStyle(.borderless)
                     }
                 }
             }
@@ -190,8 +236,20 @@ struct ContentView: View {
                 Image(systemName: "ellipsis.circle")
             }
             .menuStyle(.borderlessButton)
+            .help("More actions")
         }
-        .padding(.vertical, 4)
+        .padding(.vertical, 10)
+        .padding(.horizontal, 6)
+        .listRowInsets(EdgeInsets(top: 4, leading: LoveTheme.contentGutter - 4, bottom: 4, trailing: LoveTheme.contentGutter - 4))
+        .listRowBackground(
+            RoundedRectangle(cornerRadius: LoveTheme.controlCorner, style: .continuous)
+                .fill(isFocus ? LoveTheme.accentMuted : Color.primary.opacity(0.04))
+                .overlay {
+                    RoundedRectangle(cornerRadius: LoveTheme.controlCorner, style: .continuous)
+                        .strokeBorder(isFocus ? LoveTheme.accent.opacity(0.35) : Color.clear, lineWidth: 1)
+                }
+                .padding(.vertical, 2)
+        )
     }
 
     private func addTaskFromField() {
@@ -202,11 +260,19 @@ struct ContentView: View {
     }
 
     private var addSectionSheet: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("New section")
-                .font(.title2)
+        VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 4) {
+                LoveAccentRule(width: 32)
+                Text("New section")
+                    .font(LoveTypography.sheetTitle)
+                Text("Group must-dos the way your week actually runs.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
             TextField("Name", text: $newSectionName)
-                .textFieldStyle(.roundedBorder)
+                .textFieldStyle(.plain)
+                .padding(10)
+                .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: LoveTheme.controlCorner, style: .continuous))
             HStack {
                 Spacer()
                 Button("Cancel") { showAddSection = false }
@@ -218,10 +284,12 @@ struct ContentView: View {
                     showAddSection = false
                 }
                 .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
                 .disabled(newSectionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
-        .padding(24)
-        .frame(minWidth: 320)
+        .padding(28)
+        .frame(minWidth: 340)
+        .tint(LoveTheme.accent)
     }
 }

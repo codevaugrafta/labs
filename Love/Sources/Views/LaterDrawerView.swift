@@ -17,43 +17,70 @@ struct LaterDrawerView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Toggle("Show archived", isOn: $showArchived)
+                    .toggleStyle(.switch)
                 Spacer()
-                Button("New category") {
+                Button {
                     newCategoryName = ""
                     showNewCategory = true
+                } label: {
+                    Label("New category", systemImage: "tag.circle.fill")
                 }
+                .labelStyle(.titleAndIcon)
             }
-            .padding(.horizontal)
+            .padding(.horizontal, LoveTheme.contentGutter)
+            .padding(.vertical, 12)
+            .background {
+                LoveComposerChrome()
+            }
+            .padding(.horizontal, LoveTheme.contentGutter)
 
             if visibleCaptures.isEmpty {
-                ContentUnavailableView(
-                    "Nothing in the later drawer",
-                    systemImage: "tray",
-                    description: Text("Use Quick capture (⌃⌥L) or the toolbar button.")
-                )
+                ContentUnavailableView {
+                    VStack(spacing: 16) {
+                        LoveAccentRule(width: 40)
+                        Label {
+                            Text("Later is quiet")
+                                .font(LoveTypography.panelTitle)
+                        } icon: {
+                            Image(systemName: "tray.full")
+                                .symbolRenderingMode(.hierarchical)
+                                .foregroundStyle(LoveTheme.accent, LoveTheme.warmth.opacity(0.6))
+                                .font(.system(size: 48))
+                        }
+                    }
+                } description: {
+                    Text("Drop links and thoughts with Quick capture (⌃⌥L) or the toolbar — no inbox shame, just a gentle queue.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .lineSpacing(3)
+                        .padding(.horizontal, 32)
+                }
                 .frame(maxHeight: .infinity)
             } else {
                 List {
                     ForEach(visibleCaptures, id: \.id) { cap in
-                        VStack(alignment: .leading, spacing: 6) {
+                        VStack(alignment: .leading, spacing: 10) {
                             Text(cap.body)
-                                .lineLimit(4)
-                            HStack {
+                                .font(.body)
+                                .lineSpacing(4)
+                                .lineLimit(5)
+                            HStack(alignment: .firstTextBaseline) {
                                 if let cat = cap.category {
-                                    Text(cat.name)
-                                        .font(.caption)
+                                    Text(cat.name.uppercased())
+                                        .font(.caption2.weight(.semibold))
+                                        .tracking(0.6)
                                         .foregroundStyle(.secondary)
                                 }
                                 if cap.isArchived {
                                     Text("Archived")
-                                        .font(.caption2)
-                                        .padding(.horizontal, 6)
-                                        .padding(.vertical, 2)
-                                        .background(.quaternary)
-                                        .clipShape(Capsule())
+                                        .font(.caption2.weight(.medium))
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 3)
+                                        .background(LoveTheme.accent.opacity(0.15), in: Capsule())
                                 }
                                 Spacer()
                                 Menu("Promote…") {
@@ -69,26 +96,45 @@ struct LaterDrawerView: View {
                                         engine.unarchiveCapture(cap)
                                     }
                                     .font(.caption)
+                                    .buttonStyle(.borderless)
                                 } else {
                                     Button("Archive") {
                                         engine.archiveCapture(cap)
                                     }
                                     .font(.caption)
+                                    .buttonStyle(.borderless)
                                 }
                             }
                         }
-                        .padding(.vertical, 4)
+                        .padding(.vertical, 12)
+                        .padding(.horizontal, 8)
+                        .listRowInsets(EdgeInsets(top: 4, leading: LoveTheme.contentGutter - 4, bottom: 4, trailing: LoveTheme.contentGutter - 4))
+                        .listRowBackground(
+                            RoundedRectangle(cornerRadius: LoveTheme.controlCorner, style: .continuous)
+                                .fill(Color.primary.opacity(0.045))
+                                .padding(.vertical, 2)
+                        )
                     }
                 }
-                .listStyle(.inset(alternatesRowBackgrounds: true))
+                .scrollContentBackground(.hidden)
+                .listStyle(.inset(alternatesRowBackgrounds: false))
+                .listRowSeparator(.hidden)
             }
         }
         .sheet(isPresented: $showNewCategory) {
-            VStack(alignment: .leading, spacing: 16) {
-                Text("Category name")
-                    .font(.title2)
-                TextField("e.g. AI", text: $newCategoryName)
-                    .textFieldStyle(.roundedBorder)
+            VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 4) {
+                    LoveAccentRule(width: 32)
+                    Text("Category name")
+                        .font(LoveTypography.sheetTitle)
+                    Text("Light labels for clusters of captures.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                TextField("e.g. Reading, AI, Home", text: $newCategoryName)
+                    .textFieldStyle(.plain)
+                    .padding(10)
+                    .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
                 HStack {
                     Spacer()
                     Button("Cancel") { showNewCategory = false }
@@ -98,11 +144,13 @@ struct LaterDrawerView: View {
                         showNewCategory = false
                     }
                     .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
                     .disabled(newCategoryName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
-            .padding(24)
-            .frame(minWidth: 300)
+            .padding(28)
+            .frame(minWidth: 320)
+            .tint(LoveTheme.accent)
         }
     }
 }
