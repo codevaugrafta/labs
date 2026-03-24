@@ -5,6 +5,9 @@ Swift package folder: `VoiceTutor/`; **product name:** **IMI**.
 
 ## Quick start
 
+0. **Find your Agent ID** (API key only in your terminal, never in the app or chat):  
+   `export ELEVENLABS_API_KEY='xi-…'` then `python3 scripts/list_convai_agents.py`
+
 1. **Public agent** (marked public in the ElevenLabs dashboard): In **Settings**, enter that agent’s **Agent ID**, turn **Use token broker** off, then **Start session** from the menu bar popover or main window. No API key in the app.
 
 2. **Private agent**: Run the token broker locally (see [docs/TOKEN_BROKER.md](docs/TOKEN_BROKER.md)), enable **Use token broker** in Settings, set **Broker base URL** (default `http://127.0.0.1:8787` — no `/token` suffix; the app adds it).
