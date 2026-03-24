@@ -5,7 +5,8 @@ import SwiftUI
 /// Shared session UI for the popover and main window.
 struct TutorSessionPanel: View {
     @ObservedObject var session: TutorSessionController
-    /// Always use `AppDelegate.showSettings()` — `@Environment(\.openSettings)` is unreliable for LSUIElement apps.
+    /// Routed through `AppDelegate.showSettings()` so menu commands and popover share one path; the
+    /// delegate prefers SwiftUI `openSettings` when configured, then AppKit, then a fallback window.
     let openSettingsAction: () -> Void
 
     @AppStorage(TutorPreferences.StorageKey.agentId) private var agentIdStorage = ""
