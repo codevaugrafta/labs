@@ -11,7 +11,7 @@ alwaysApply: true
 - Small commits (<100 lines). Conventional commit messages with WHY.
 - Never break existing tests.
 - Run the project’s verification after substantive changes:
-  - **Tiempo / Adhan / Love / VoiceTutor**: `swift test` (and `swift build` if you touched app targets).
+  - **Tiempo / Adhan / Love / VoiceTutor**: `swift test` (and `swift build` if you touched app targets). **IMI (`VoiceTutor`)**: after substantive changes run `cd VoiceTutor && swift test && ./build-app.sh` — **`build-app.sh` updates `/Applications/IMI.app` automatically** unless `SKIP_IMI_APPLICATIONS_INSTALL=1` or `CI` is set.
   - **Pomodoro**: `cd pomodoro && npm run verify:static` on tight loops; **`npm run verify`** (adds Playwright e2e) before merge or when claiming full green.
   - **Other JS/TS**: `npm test` or the repo’s documented verify script if present.
 

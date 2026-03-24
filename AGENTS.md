@@ -43,13 +43,13 @@ This file is read by both Cursor and Claude Code agents.
 - **Bundle id**: `com.franciscodilussor.love` — distinct from any prior `focuspath` bundle; on-disk store migrates from `Application Support/FocusPath/` when `Love.store` is missing. Failed migration is **logged** (`subsystem:com.franciscodilussor.love`, category `migration`) and surfaces a **one-shot alert**; save failures show **`LoveSaveErrorBanner`** in the **main window** and **Quick capture** (panel stays open on failed save so text isn’t lost; dismiss calls `clearLastError()`).
 - **Optional app icon (Gemini)**: `cd Love && export GEMINI_API_KEY=... && python3 scripts/generate_app_icon_gemini.py` writes `build/AppIcon.icns`; `./build-app.sh` copies it into the bundle when present. Offline fallback: `swift scripts/create-icon.swift` + `iconutil` (as in `build-app.sh`).
 
-### Voice Tutor (macOS menu-bar voice tutoring)
-- **Path**: `VoiceTutor/`
-- **Stack**: Swift 6.2+ (swift-tools-version 6.2), SwiftUI, [ElevenLabs Swift SDK](https://github.com/elevenlabs/elevenlabs-swift-sdk) (LiveKit WebRTC), menu bar `NSStatusItem`
+### IMI (macOS menu-bar voice companion)
+- **Path**: `VoiceTutor/` (Swift module `VoiceTutor`; **product name IMI**)
+- **Stack**: Swift 6.2+ (swift-tools-version 6.2), SwiftUI, [ElevenLabs Swift SDK](https://github.com/elevenlabs/elevenlabs-swift-sdk) (LiveKit WebRTC), menu bar **`MenuBarExtra`** (`.window` style — not tied to main-window `onAppear`)
 - **Outcome doc**: `plans/voice-tutor-outcome.md`
 - **Tests**: `cd VoiceTutor && swift test`
 - **Build**: `cd VoiceTutor && swift build`
-- **Run (.app bundle)**: `cd VoiceTutor && ./build-app.sh && open build/VoiceTutor.app` — same **LSUIElement** pattern as Love: **no Dock icon**; use the **menu bar** bubbles icon; **⌘O** opens the main window from the **Voice Tutor** menu.
+- **Run (.app bundle)**: `cd VoiceTutor && ./build-app.sh` — **`build-app.sh` must copy `LiveKitWebRTC.framework` into `Contents/MacOS/`** or the app **exits immediately** (dyld). **`build-app.sh` also copies `IMI.app` to `/Applications` by default** (so Spotlight/Launchpad match `build/`); set **`SKIP_IMI_APPLICATIONS_INSTALL=1`** or run in **`CI`** to skip. **`./VoiceTutor/scripts/install-to-applications.sh`** = build + guaranteed install + **`open -a IMI`**. Same **LSUIElement** pattern as Love: **no Dock icon**; use the **menu bar**; **⌘O** opens the main window from the **IMI** menu.
 - **Private agents**: do **not** embed `xi-api-key` in the app; run `python3 scripts/elevenlabs_token_broker.py` with `ELEVENLABS_API_KEY` set — see `VoiceTutor/docs/TOKEN_BROKER.md`.
 - **Manual QA**: `VoiceTutor/docs/MANUAL-TEST-MATRIX.md` · **Custom stack spike notes**: `VoiceTutor/docs/voice-tutor-custom-stack-spike.md`
 
@@ -81,7 +81,7 @@ This file is read by both Cursor and Claude Code agents.
 
 ## Learned User Preferences
 - Prefer running commands and automated tests in the repo over giving instructions-only replies when the environment allows shell access.
-- For web apps, verify UX in a real browser when MCP browser tools are available; native macOS SwiftUI apps (Tiempo, Adhan, Love, Voice Tutor) are not driven by browser automation in chat—combine `swift test` / local `.app` builds with manual UI review or XCUITest instead of implying click-through coverage from the agent alone.
+- For web apps, verify UX in a real browser when MCP browser tools are available; native macOS SwiftUI apps (Tiempo, Adhan, Love, IMI) are not driven by browser automation in chat—combine `swift test` / local `.app` builds with manual UI review or XCUITest instead of implying click-through coverage from the agent alone.
 - Before stating that a capability is unavailable in-session, check workspace MCP tool descriptors (e.g. `cursor-ide-browser`) rather than relying only on the short server list in a system prompt.
 - When the user reports no visible change in a macOS app, or cannot find or run the app, verify whether they are using `/Applications/…`, `swift run`, or a freshly built `.app`, and remember that menu-bar-first apps with `LSUIElement` do not show in the Dock even when installed; align with the rebuild, install, and menu-bar notes in this file.
 - When disabling or interrupting TTS on macOS (including Claude Code settings such as `CLAUDE_TTS_ENABLED`), stop in-flight playback explicitly (for example terminate `afplay` and related player processes) before or alongside changing settings; toggling configuration alone does not stop audio that is already playing.
