@@ -19,6 +19,13 @@ struct TokenBrokerClientTests {
         #expect(built.path == "/token")
         #expect(built.query()?.contains("agent_test") == true)
     }
+
+    @Test("Broker error descriptions include HTTP detail")
+    func brokerErrorText() {
+        let err = TokenBrokerClientError.badStatus(401, detail: "unauthorized")
+        #expect(err.errorDescription?.contains("401") == true)
+        #expect(err.errorDescription?.contains("unauthorized") == true)
+    }
 }
 
 @Suite("TutorPreferences")
@@ -27,5 +34,13 @@ struct TutorPreferencesTests {
     func brokerDefault() {
         UserDefaults.standard.removeObject(forKey: "VoiceTutor.brokerURL")
         #expect(TutorPreferences.brokerURLString == "http://127.0.0.1:8787")
+    }
+
+    @Test("Whitespace-only broker URL falls back to default")
+    func brokerWhitespaceFallback() {
+        UserDefaults.standard.set("  \n\t", forKey: "VoiceTutor.brokerURL")
+        #expect(TutorPreferences.brokerURLString == "http://127.0.0.1:8787")
+        #expect(TutorPreferences.brokerURL?.absoluteString == "http://127.0.0.1:8787")
+        UserDefaults.standard.removeObject(forKey: "VoiceTutor.brokerURL")
     }
 }

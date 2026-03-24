@@ -32,10 +32,17 @@ final class TutorSessionController: ObservableObject {
             lastError = "A session is already active. End it first."
             return
         }
+        // `conversation` stays nil until after `await startConversation` returns; without this,
+        // a second start while the first is in-flight would create two sessions.
+        if isBusy {
+            lastError = "Session is already starting. Wait a moment."
+            return
+        }
 
         isBusy = true
         defer { isBusy = false }
 
+        var convNeedingTeardown: Conversation?
         do {
             let config = makeConversationConfig()
             let conv: Conversation
@@ -67,11 +74,16 @@ final class TutorSessionController: ObservableObject {
                     }
                 )
             }
+            convNeedingTeardown = conv
+            try await conv.setMuted(false)
             inFlightToolCallIds.removeAll()
             conversation = conv
             bindToolCalls(conv)
-            try await conv.setMuted(false)
+            convNeedingTeardown = nil
         } catch {
+            if let conv = convNeedingTeardown {
+                await conv.endConversation()
+            }
             conversation = nil
             toolCallCancellable = nil
             inFlightToolCallIds.removeAll()
@@ -106,10 +118,22 @@ final class TutorSessionController: ObservableObject {
         ConversationConfig(
             onError: { [weak self] err in
                 Task { @MainActor in
-                    self?.lastError = err.localizedDescription
+                    await self?.teardownAfterHostedError(err)
                 }
             }
         )
+    }
+
+    /// Hosted SDK errors can leave `conversation` non-nil while the session is unusable — align with disconnect.
+    private func teardownAfterHostedError(_ err: Error) async {
+        lastError = err.localizedDescription
+        let conv = conversation
+        toolCallCancellable = nil
+        inFlightToolCallIds.removeAll()
+        conversation = nil
+        if let conv {
+            await conv.endConversation()
+        }
     }
 
     private func bindToolCalls(_ conv: Conversation) {
