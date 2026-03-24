@@ -6,6 +6,8 @@ enum TutorPreferences {
         static let agentId = "VoiceTutor.agentId"
         static let useTokenBroker = "VoiceTutor.useTokenBroker"
         static let brokerURL = "VoiceTutor.brokerURL"
+        /// Passed to the Swift SDK as `ConversationConfig.environment` (optional regional / deployment routing).
+        static let elevenLabsEnvironment = "VoiceTutor.elevenLabsEnvironment"
     }
 
     static var agentId: String {
@@ -32,5 +34,16 @@ enum TutorPreferences {
 
     static var brokerURL: URL? {
         URL(string: brokerURLString)
+    }
+
+    static var elevenLabsEnvironment: String {
+        get { UserDefaults.standard.string(forKey: StorageKey.elevenLabsEnvironment) ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: StorageKey.elevenLabsEnvironment) }
+    }
+
+    /// `nil` when unset — matches SDK default (global production routing).
+    static var elevenLabsEnvironmentForSDK: String? {
+        let t = elevenLabsEnvironment.trimmingCharacters(in: .whitespacesAndNewlines)
+        return t.isEmpty ? nil : t
     }
 }

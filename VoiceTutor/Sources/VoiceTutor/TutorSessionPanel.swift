@@ -11,6 +11,7 @@ struct TutorSessionPanel: View {
 
     @AppStorage(TutorPreferences.StorageKey.agentId) private var agentIdStorage = ""
     @AppStorage(TutorPreferences.StorageKey.useTokenBroker) private var useTokenBrokerStorage = false
+    @AppStorage(TutorPreferences.StorageKey.elevenLabsEnvironment) private var environmentStorage = ""
 
     private var agentConfigured: Bool {
         !agentIdStorage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -38,6 +39,13 @@ struct TutorSessionPanel: View {
                         LabeledContent("Auth") {
                             Text(useTokenBrokerStorage ? "Token broker" : "Public agent")
                                 .foregroundStyle(.secondary)
+                        }
+                        if !environmentStorage.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            LabeledContent("SDK environment") {
+                                Text(environmentStorage.trimmingCharacters(in: .whitespacesAndNewlines))
+                                    .font(.body.monospaced())
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                         Text(
                             "ElevenLabs is used only after you tap Start session (LiveKit + ConvAI). This screen is local until then."

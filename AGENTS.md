@@ -51,6 +51,7 @@ This file is read by both Cursor and Claude Code agents.
 - **Build**: `cd VoiceTutor && swift build`
 - **Run (.app bundle)**: `cd VoiceTutor && ./build-app.sh` — **`build-app.sh` must copy `LiveKitWebRTC.framework` into `Contents/MacOS/`** or the app **exits immediately** (dyld). **`build-app.sh` also copies `IMI.app` to `/Applications` by default** (so Spotlight/Launchpad match `build/`); set **`SKIP_IMI_APPLICATIONS_INSTALL=1`** or run in **`CI`** to skip. **`./VoiceTutor/scripts/install-to-applications.sh`** = build + guaranteed install + **`open -a IMI`**. Same **LSUIElement** pattern as Love: **no Dock icon**; use the **menu bar**; **⌘O** opens the main window from the **IMI** menu.
 - **Private agents**: do **not** embed `xi-api-key` in the app; run `python3 scripts/elevenlabs_token_broker.py` with `ELEVENLABS_API_KEY` set — see `VoiceTutor/docs/TOKEN_BROKER.md`.
+- **SDK docs alignment**: optional **Settings → Advanced → Environment** maps to `ConversationConfig.environment` (regional routing when ElevenLabs documents it). Debug builds use SDK **`.debug`** logging — Console filter **`com.elevenlabs.sdk`** (upstream `Documentation/Usage.md`).
 - **Manual QA**: `VoiceTutor/docs/MANUAL-TEST-MATRIX.md` · **Custom stack spike notes**: `VoiceTutor/docs/voice-tutor-custom-stack-spike.md`
 
 ### SyncReader (Tauri + Svelte)

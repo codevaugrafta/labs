@@ -36,6 +36,12 @@ To build, install, and **launch** in one step:
 ./scripts/install-to-applications.sh
 ```
 
+## Troubleshooting sessions
+
+- **Private agent** without the broker, or **public** mode with a non-public agent, will fail at connect — use the right mode in Settings.
+- **Microphone**: IMI needs **Microphone** in System Settings; if connect succeeds but audio fails, use the in-app error text and the mic toggle.
+- **Debug builds**: SDK logs use subsystem **`com.elevenlabs.sdk`** (see ElevenLabs Swift SDK `Documentation/Usage.md`).
+
 Product outcome and acceptance notes: [plans/voice-tutor-outcome.md](../plans/voice-tutor-outcome.md) (repo root).
 
 ## Project layout

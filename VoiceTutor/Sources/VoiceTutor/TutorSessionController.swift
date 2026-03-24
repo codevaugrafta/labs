@@ -13,7 +13,12 @@ final class TutorSessionController: ObservableObject {
     private var inFlightToolCallIds = Set<String>()
 
     init() {
+        #if DEBUG
+        // Matches SDK docs: filter Console by subsystem `com.elevenlabs.sdk` while debugging sessions.
+        ElevenLabs.configure(ElevenLabs.Configuration(logLevel: .debug))
+        #else
         ElevenLabs.configure(ElevenLabs.Configuration(logLevel: .warning))
+        #endif
     }
 
     func clearError() {
@@ -75,11 +80,19 @@ final class TutorSessionController: ObservableObject {
                 )
             }
             convNeedingTeardown = conv
-            try await conv.setMuted(false)
             inFlightToolCallIds.removeAll()
+            // Publish the conversation before unmute so UI matches SDK state; a mic failure must not
+            // trip the outer catch (that tore down an otherwise healthy session — felt like a “crash”).
             conversation = conv
             bindToolCalls(conv)
             convNeedingTeardown = nil
+            do {
+                try await conv.setMuted(false)
+            } catch {
+                lastError =
+                    "Session connected, but the microphone could not be enabled: \(error.localizedDescription). "
+                    + "Check System Settings → Privacy & Security → Microphone for IMI, then try the mic toggle."
+            }
         } catch {
             if let conv = convNeedingTeardown {
                 await conv.endConversation()
@@ -116,6 +129,7 @@ final class TutorSessionController: ObservableObject {
 
     private func makeConversationConfig() -> ConversationConfig {
         ConversationConfig(
+            environment: TutorPreferences.elevenLabsEnvironmentForSDK,
             onError: { [weak self] err in
                 Task { @MainActor in
                     await self?.teardownAfterHostedError(err)
@@ -125,7 +139,7 @@ final class TutorSessionController: ObservableObject {
     }
 
     /// Hosted SDK errors can leave `conversation` non-nil while the session is unusable — align with disconnect.
-    private func teardownAfterHostedError(_ err: Error) async {
+    private func teardownAfterHostedError(_ err: ConversationError) async {
         lastError = err.localizedDescription
         let conv = conversation
         toolCallCancellable = nil

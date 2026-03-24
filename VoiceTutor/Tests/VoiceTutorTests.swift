@@ -43,4 +43,15 @@ struct TutorPreferencesTests {
         #expect(TutorPreferences.brokerURL?.absoluteString == "http://127.0.0.1:8787")
         UserDefaults.standard.removeObject(forKey: "VoiceTutor.brokerURL")
     }
+
+    @Test("Empty ElevenLabs environment maps to nil for SDK")
+    func environmentOptional() {
+        UserDefaults.standard.removeObject(forKey: "VoiceTutor.elevenLabsEnvironment")
+        #expect(TutorPreferences.elevenLabsEnvironmentForSDK == nil)
+        UserDefaults.standard.set("  \n", forKey: "VoiceTutor.elevenLabsEnvironment")
+        #expect(TutorPreferences.elevenLabsEnvironmentForSDK == nil)
+        UserDefaults.standard.set("prod", forKey: "VoiceTutor.elevenLabsEnvironment")
+        #expect(TutorPreferences.elevenLabsEnvironmentForSDK == "prod")
+        UserDefaults.standard.removeObject(forKey: "VoiceTutor.elevenLabsEnvironment")
+    }
 }
