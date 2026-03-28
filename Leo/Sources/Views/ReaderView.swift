@@ -23,6 +23,7 @@ struct ReaderView: View {
             Group {
                 if book.format == .pdf {
                     // Native PDF rendering — fast, reliable, supports Chinese
+                    let _ = NSLog("[Leo] Rendering PDFReaderView for: \(book.filePath)")
                     PDFReaderView(filePath: book.filePath)
                 } else if let content {
                     VStack(spacing: 0) {
