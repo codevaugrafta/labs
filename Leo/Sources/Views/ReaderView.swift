@@ -16,9 +16,8 @@ struct ReaderView: View {
 
     var body: some View {
         // Reader content fills the full area.
-        // The popup is anchored to the bottom via safeAreaInset — it slides up
-        // from the window edge and never overlaps the reading text.
-        // No coordinate mapping needed: iframe coords are not used.
+        // The popup is a floating card overlaid at the bottom-center — it does not
+        // push the reading content up. Tapping outside the card dismisses it.
         Group {
             if book.format == .pdf {
                 PDFReaderView(filePath: book.filePath)
@@ -32,29 +31,44 @@ struct ReaderView: View {
                 )
             }
         }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        .overlay(alignment: .bottom) {
             if let word = selectedWord {
-                WordPopupView(
-                    word: word,
-                    entries: wordEntries,
-                    familiarityState: wordFamiliarity,
-                    frequencyData: wordFrequency ?? FrequencyEngine.shared.lookup(word),
-                    onDismiss: { selectedWord = nil },
-                    onMarkKnown: {
-                        familiarityTracker?.markAsKnown(word)
-                        selectedWord = nil
-                    },
-                    onAddToSRS: {
-                        familiarityTracker?.markAsLearning(word)
-                        let fsrs = FSRSEngine(modelContext: modelContext)
-                        if fsrs.card(for: word) == nil {
-                            _ = fsrs.createCard(for: word)
+                // Transparent full-screen tap-to-dismiss backdrop sits behind the card.
+                // ZStack layering: backdrop (bottom) → card (top).
+                ZStack(alignment: .bottom) {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture { selectedWord = nil }
+
+                    WordPopupView(
+                        word: word,
+                        entries: wordEntries,
+                        familiarityState: wordFamiliarity,
+                        frequencyData: wordFrequency ?? FrequencyEngine.shared.lookup(word),
+                        onDismiss: { selectedWord = nil },
+                        onMarkKnown: {
+                            familiarityTracker?.markAsKnown(word)
+                            selectedWord = nil
+                        },
+                        onAddToSRS: {
+                            familiarityTracker?.markAsLearning(word)
+                            let fsrs = FSRSEngine(modelContext: modelContext)
+                            if fsrs.card(for: word) == nil {
+                                _ = fsrs.createCard(for: word)
+                            }
+                            selectedWord = nil
                         }
-                        selectedWord = nil
-                    }
-                )
-                .transition(.move(edge: .bottom).combined(with: .opacity))
-                .animation(.easeOut(duration: 0.2), value: selectedWord)
+                    )
+                    // Block backdrop tap from passing through the card itself.
+                    .contentShape(Rectangle())
+                    .onTapGesture { /* consume — card handles its own interactions */ }
+                    .frame(maxWidth: 400)
+                    .padding(.horizontal, 40)
+                    .padding(.bottom, 20)
+                    .shadow(color: .black.opacity(0.18), radius: 16, x: 0, y: 4)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    .animation(.easeOut(duration: 0.2), value: selectedWord)
+                }
             }
         }
         .toolbar {

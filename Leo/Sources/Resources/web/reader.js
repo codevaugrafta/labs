@@ -138,6 +138,8 @@ window.setTheme = function(theme) {
 }
 
 // --- PAGE NAVIGATION ---
+// Navigation via keyboard (arrow keys, spacebar) and Swift-exposed JS functions.
+// Click-based navigation has been intentionally removed — taps mean dictionary lookup.
 
 // Keyboard navigation
 document.addEventListener('keydown', (e) => {
@@ -158,17 +160,6 @@ document.addEventListener('keydown', (e) => {
             e.preventDefault()
             view.goToTextStart?.()
             break
-    }
-})
-
-// Click navigation: click left 20% = prev, right 20% = next
-document.addEventListener('click', (e) => {
-    if (!view.renderer) return
-    const x = e.clientX / window.innerWidth
-    if (x < 0.15) {
-        view.renderer.prev()
-    } else if (x > 0.85) {
-        view.renderer.next()
     }
 })
 
