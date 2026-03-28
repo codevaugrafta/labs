@@ -77,6 +77,35 @@ struct ReaderView: View {
             }
         }
         .toolbar {
+            // Reading session timer
+            ToolbarItem(placement: .automatic) {
+                if sessionEngine.isActive {
+                    HStack(spacing: 6) {
+                        Image(systemName: "timer")
+                            .foregroundStyle(.orange)
+                        Text(sessionEngine.formattedTime)
+                            .font(.system(.body, design: .monospaced))
+                            .foregroundStyle(.primary)
+                        Button(action: {
+                            sessionEngine.stopSession()
+                        }) {
+                            Image(systemName: "stop.circle.fill")
+                                .foregroundStyle(.red)
+                        }
+                        .buttonStyle(.plain)
+                        .help("Stop reading session (Cmd+R)")
+                    }
+                } else {
+                    Button(action: {
+                        sessionEngine.startSession(bookTitle: book.title)
+                    }) {
+                        Label("Start Session", systemImage: "play.circle")
+                    }
+                    .help("Start reading session (Cmd+R)")
+                }
+            }
+
+            // Theme picker
             ToolbarItem(placement: .automatic) {
                 Picker("Theme", selection: $theme) {
                     ForEach(ReadingTheme.allCases) { t in
@@ -86,6 +115,7 @@ struct ReaderView: View {
                 .pickerStyle(.segmented)
             }
         }
+        .keyboardShortcut("r", modifiers: .command)
         .task {
             DictionaryEngine.shared.load()
             FrequencyEngine.shared.load()
