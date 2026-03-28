@@ -18,6 +18,8 @@ final class LocalServer: @unchecked Sendable {
         webRoot = webResourcesPath
 
         let httpServer = HttpServer()
+        // Swifter defaults to INADDR_ANY when listen address is nil — bind loopback only.
+        httpServer.listenAddressIPv4 = "127.0.0.1"
 
         // Catch-all: serve web resources for any path starting with /web/
         httpServer.notFoundHandler = { request in
@@ -49,10 +51,7 @@ final class LocalServer: @unchecked Sendable {
                 default: mimeType = "application/octet-stream"
                 }
 
-                return HttpResponse.raw(200, "OK", [
-                    "Content-Type": mimeType,
-                    "Access-Control-Allow-Origin": "*",
-                ]) { writer in
+                return HttpResponse.raw(200, "OK", responseHeaders(contentType: mimeType)) { writer in
                     try writer.write(data)
                 }
             }
@@ -69,10 +68,7 @@ final class LocalServer: @unchecked Sendable {
             }
             let ext = (filePath as NSString).pathExtension.lowercased()
             let mimeType = ext == "epub" ? "application/epub+zip" : "application/pdf"
-            return HttpResponse.raw(200, "OK", [
-                "Content-Type": mimeType,
-                "Access-Control-Allow-Origin": "*",
-            ]) { writer in
+            return HttpResponse.raw(200, "OK", responseHeaders(contentType: mimeType)) { writer in
                 try writer.write(data)
             }
         }
@@ -110,5 +106,14 @@ final class LocalServer: @unchecked Sendable {
         server?.stop()
         server = nil
         NSLog("[Leo Server] Stopped")
+    }
+
+    /// CORS: restrict to this app’s WebView origin (loopback + bound port). Omit header if port not ready.
+    private func responseHeaders(contentType: String) -> [String: String] {
+        var headers: [String: String] = ["Content-Type": contentType]
+        if port > 0 {
+            headers["Access-Control-Allow-Origin"] = "http://127.0.0.1:\(port)"
+        }
+        return headers
     }
 }
