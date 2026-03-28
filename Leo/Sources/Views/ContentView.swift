@@ -25,7 +25,7 @@ struct ContentView: View {
         }
         .fileImporter(
             isPresented: $showFilePicker,
-            allowedContentTypes: [.epub],
+            allowedContentTypes: [.epub, .pdf],
             allowsMultipleSelection: false
         ) { result in
             handleFileImport(result)
@@ -51,11 +51,12 @@ struct ContentView: View {
         let destination = booksDir.appendingPathComponent(url.lastPathComponent)
         try? FileManager.default.copyItem(at: url, to: destination)
 
+        let format: BookFormat = url.pathExtension.lowercased() == "pdf" ? .pdf : .epub
         let book = Book(
             title: url.deletingPathExtension().lastPathComponent,
             author: "Unknown",
             filePath: destination.path,
-            format: .epub
+            format: format
         )
         modelContext.insert(book)
         selectedBook = book
