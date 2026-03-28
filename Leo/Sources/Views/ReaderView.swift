@@ -21,29 +21,9 @@ struct ReaderView: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             Group {
-                if book.format == .pdf, let pdfContent = pdfPages {
-                    // PDF rendered as styled text (same as EPUB) for Chinese learning
-                    VStack(spacing: 0) {
-                        EPUBWebView(
-                            chapter: EPUBParser.Chapter(
-                                id: "pdf-\(currentChapterIndex)",
-                                title: "Page \(currentChapterIndex + 1)",
-                                href: "",
-                                htmlContent: pdfPageToHTML(pdfContent, page: currentChapterIndex)
-                            ),
-                            basePath: URL(fileURLWithPath: NSTemporaryDirectory()),
-                            theme: theme,
-                            onWordTapped: handleWordTap
-                        )
-
-                        ChapterNavigationBar(
-                            currentIndex: currentChapterIndex,
-                            totalChapters: pdfContent.count,
-                            chapterTitle: "Page \(currentChapterIndex + 1)",
-                            onPrevious: { currentChapterIndex = max(0, currentChapterIndex - 1) },
-                            onNext: { currentChapterIndex = min(pdfContent.count - 1, currentChapterIndex + 1) }
-                        )
-                    }
+                if book.format == .pdf {
+                    // Native PDF rendering — fast, reliable, supports Chinese
+                    PDFReaderView(filePath: book.filePath)
                 } else if let content {
                     VStack(spacing: 0) {
                         EPUBWebView(
@@ -188,34 +168,29 @@ struct ReaderView: View {
 
         book.lastOpenedAt = Date()
 
-        // Parse on a background thread to avoid blocking UI, then update state on main
         let url = URL(fileURLWithPath: filePath)
 
         if format == .pdf {
-            NSLog("[Leo] Parsing PDF...")
-            let pdfResult: Result<[String], Error> = Result {
-                let pdfParser = PDFParser()
-                let pdfContent = try pdfParser.parse(fileURL: url)
-                NSLog("[Leo] PDF parsed: \(pdfContent.pageCount) pages")
-                return pdfContent.pages.map(\.text)
-            }
-            switch pdfResult {
-            case .success(let pages):
-                pdfPages = pages
-            case .failure(let err):
-                self.error = "PDF error: \(err.localizedDescription)"
-                NSLog("[Leo] PDF ERROR: \(err)")
-            }
+            // PDF uses native PDFView — no parsing needed
+            NSLog("[Leo] PDF book selected — using native PDFView")
+            return
         } else {
-            NSLog("[Leo] Parsing EPUB...")
-            let epubResult: Result<EPUBParser.EPUBContent, Error> = Result {
-                let parser = EPUBParser()
-                return try parser.parse(fileURL: url)
+            NSLog("[Leo] Parsing EPUB on background thread...")
+            // Use GCD — Process.waitUntilExit() blocks cooperative threads
+            let parsed: EPUBParser.EPUBContent? = await withCheckedContinuation { continuation in
+                DispatchQueue.global(qos: .userInitiated).async {
+                    do {
+                        let parser = EPUBParser()
+                        let result = try parser.parse(fileURL: url)
+                        NSLog("[Leo] EPUB parsed: \(result.chapters.count) chapters")
+                        continuation.resume(returning: result)
+                    } catch {
+                        NSLog("[Leo] EPUB ERROR: \(error)")
+                        continuation.resume(returning: nil)
+                    }
+                }
             }
-            switch epubResult {
-            case .success(let parsed):
-                NSLog("[Leo] EPUB parsed: \(parsed.chapters.count) chapters, title=\(parsed.title)")
-                NSLog("[Leo] Base path: \(parsed.basePath)")
+            if let parsed {
                 content = parsed
                 if !parsed.title.isEmpty {
                     book.title = parsed.title
@@ -223,9 +198,8 @@ struct ReaderView: View {
                 if !parsed.author.isEmpty && parsed.author != "Unknown" {
                     book.author = parsed.author
                 }
-            case .failure(let err):
-                self.error = "EPUB error: \(err.localizedDescription)"
-                NSLog("[Leo] EPUB ERROR: \(err)")
+            } else {
+                self.error = "Failed to open EPUB"
             }
         }
     }
