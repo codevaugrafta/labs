@@ -137,6 +137,45 @@ window.setTheme = function(theme) {
     }
 }
 
+// --- PAGE NAVIGATION ---
+
+// Keyboard navigation
+document.addEventListener('keydown', (e) => {
+    if (!view.renderer) return
+    switch (e.key) {
+        case 'ArrowRight':
+        case 'PageDown':
+        case ' ':
+            e.preventDefault()
+            view.renderer.next()
+            break
+        case 'ArrowLeft':
+        case 'PageUp':
+            e.preventDefault()
+            view.renderer.prev()
+            break
+        case 'Home':
+            e.preventDefault()
+            view.goToTextStart?.()
+            break
+    }
+})
+
+// Click navigation: click left 20% = prev, right 20% = next
+document.addEventListener('click', (e) => {
+    if (!view.renderer) return
+    const x = e.clientX / window.innerWidth
+    if (x < 0.15) {
+        view.renderer.prev()
+    } else if (x > 0.85) {
+        view.renderer.next()
+    }
+})
+
+// Navigation commands from Swift
+window.nextPage = function() { view.renderer?.next() }
+window.prevPage = function() { view.renderer?.prev() }
+
 // --- CHINESE CHARACTER CLICK HANDLING ---
 
 // Returns true for CJK Unified Ideographs and common CJK extension blocks.
