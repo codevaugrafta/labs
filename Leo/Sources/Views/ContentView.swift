@@ -70,14 +70,64 @@ struct LibrarySidebar: View {
     @Binding var selectedBook: Book?
     let onImport: () -> Void
     let onReview: () -> Void
+    @Query private var vocabulary: [VocabularyEntry]
+    @Query private var dueCards: [FSRSCard]
 
     var body: some View {
         List(selection: $selectedBook) {
             Section {
                 Button(action: onReview) {
-                    Label("Review Cards", systemImage: "rectangle.stack")
+                    HStack {
+                        Label("Review Cards", systemImage: "rectangle.stack")
+                        Spacer()
+                        let due = dueCards.filter { $0.dueDate <= Date() }.count
+                        if due > 0 {
+                            Text("\(due)")
+                                .font(.caption2.weight(.bold))
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(.red)
+                                .foregroundStyle(.white)
+                                .clipShape(Capsule())
+                        }
+                    }
                 }
                 .buttonStyle(.plain)
+            }
+
+            Section("Stats") {
+                let known = vocabulary.filter { $0.state == .known }.count
+                let learning = vocabulary.filter { $0.state == .learning || $0.state == .familiar }.count
+                let seen = vocabulary.filter { $0.state == .seen }.count
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(known)")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(.green)
+                        Text("Known")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(learning)")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(.yellow)
+                        Text("Learning")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("\(seen)")
+                            .font(.title3.weight(.semibold))
+                            .foregroundStyle(.orange)
+                        Text("Seen")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, 4)
             }
 
             Section("Library") {
