@@ -1,5 +1,6 @@
 import SwiftUI
 import WebKit
+import PDFKit
 
 struct ReaderView: View {
     let book: Book
@@ -19,7 +20,10 @@ struct ReaderView: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             Group {
-                if let content {
+                if book.format == .pdf {
+                    // PDF rendering via Apple PDFKit
+                    PDFReaderView(filePath: book.filePath)
+                } else if let content {
                     VStack(spacing: 0) {
                         EPUBWebView(
                             chapter: content.chapters[currentChapterIndex],
@@ -541,5 +545,28 @@ enum ReadingTheme: String, CaseIterable, Identifiable {
         case .dark: "#E5E5E5"
         case .sepia: "#4A3520"
         }
+    }
+}
+
+// MARK: - PDF Reader (Apple PDFKit)
+
+struct PDFReaderView: NSViewRepresentable {
+    let filePath: String
+
+    func makeNSView(context: Context) -> PDFView {
+        let pdfView = PDFView()
+        pdfView.autoScales = true
+        pdfView.displayMode = .singlePageContinuous
+        pdfView.displayDirection = .vertical
+        pdfView.backgroundColor = .windowBackgroundColor
+
+        if let document = PDFDocument(url: URL(fileURLWithPath: filePath)) {
+            pdfView.document = document
+        }
+        return pdfView
+    }
+
+    func updateNSView(_ pdfView: PDFView, context: Context) {
+        // PDF view handles its own state
     }
 }
