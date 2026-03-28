@@ -6,69 +6,26 @@ struct ReaderView: View {
     let book: Book
     @State private var theme: ReadingTheme = .light
     @State private var error: String?
-    @State private var selectedWord: String?
-    @State private var wordEntries: [DictionaryEngine.Entry] = []
-    @State private var wordFamiliarity: FamiliarityState = .unknown
-    @State private var wordFrequency: FrequencyEngine.FrequencyData?
     @State private var familiarityTracker: FamiliarityTracker?
     @StateObject private var sessionEngine = ReadingSessionEngine()
     @Environment(\.modelContext) private var modelContext
 
     var body: some View {
-        // Reader content fills the full area.
-        // The popup is a floating card overlaid at the bottom-center — it does not
-        // push the reading content up. Tapping outside the card dismisses it.
         Group {
             if book.format == .pdf {
                 PDFReaderView(filePath: book.filePath)
             } else {
-                // EPUB via foliate-js + localhost server
+                // EPUB via foliate-js + localhost server.
+                // The dictionary popup is rendered as an HTML floating card inside the
+                // WKWebView — no SwiftUI overlay. The popup positions itself next to the
+                // tapped word and handles its own dismiss / action buttons.
                 FoliateReaderView(
                     bookFilePath: book.filePath,
                     bookId: book.id.uuidString,
                     theme: theme,
-                    onWordTapped: handleWordTap
+                    onWordTapped: handleWordTap,
+                    onPopupAction: handlePopupAction
                 )
-            }
-        }
-        .overlay(alignment: .bottom) {
-            if let word = selectedWord {
-                // Transparent full-screen tap-to-dismiss backdrop sits behind the card.
-                // ZStack layering: backdrop (bottom) → card (top).
-                ZStack(alignment: .bottom) {
-                    Color.clear
-                        .contentShape(Rectangle())
-                        .onTapGesture { selectedWord = nil }
-
-                    WordPopupView(
-                        word: word,
-                        entries: wordEntries,
-                        familiarityState: wordFamiliarity,
-                        frequencyData: wordFrequency ?? FrequencyEngine.shared.lookup(word),
-                        onDismiss: { selectedWord = nil },
-                        onMarkKnown: {
-                            familiarityTracker?.markAsKnown(word)
-                            selectedWord = nil
-                        },
-                        onAddToSRS: {
-                            familiarityTracker?.markAsLearning(word)
-                            let fsrs = FSRSEngine(modelContext: modelContext)
-                            if fsrs.card(for: word) == nil {
-                                _ = fsrs.createCard(for: word)
-                            }
-                            selectedWord = nil
-                        }
-                    )
-                    // Block backdrop tap from passing through the card itself.
-                    .contentShape(Rectangle())
-                    .onTapGesture { /* consume — card handles its own interactions */ }
-                    .frame(maxWidth: 400)
-                    .padding(.horizontal, 40)
-                    .padding(.bottom, 20)
-                    .shadow(color: .black.opacity(0.18), radius: 16, x: 0, y: 4)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .animation(.easeOut(duration: 0.2), value: selectedWord)
-                }
             }
         }
         .toolbar {
@@ -80,10 +37,6 @@ struct ReaderView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .onChange(of: theme) { _, newTheme in
-                    // Send theme to foliate-js via JS bridge
-                    // FoliateReaderView will pick this up
-                }
             }
 
             // Reading session timer
@@ -108,7 +61,6 @@ struct ReaderView: View {
             }
         }
         .task {
-            // Load dictionaries in background
             Task.detached(priority: .userInitiated) {
                 DictionaryEngine.shared.load()
                 FrequencyEngine.shared.load()
@@ -116,32 +68,39 @@ struct ReaderView: View {
             familiarityTracker = FamiliarityTracker(modelContext: modelContext)
             sessionEngine.configure(modelContext: modelContext)
         }
-        .onTapGesture {
-            if selectedWord != nil { selectedWord = nil }
-        }
     }
 
+    // Called by the coordinator immediately after resolving the tapped word.
+    // Used to record the encounter in the familiarity tracker / session engine.
+    // The popup itself is rendered in JS — we don't show any SwiftUI state here.
     private func handleWordTap(_ char: String, context: String, charIndex: Int, x: CGFloat, y: CGFloat) {
         NSLog("[Leo UI] Word tap received: char=\(char), context=\(context.prefix(20)), idx=\(charIndex)")
 
-        // Resolve word from character + context using the parser
+        // The coordinator already resolved the word and is calling showPopup() in JS.
+        // We just record the encounter here for familiarity tracking.
         let parser = ChineseParser()
         let word = parser.resolveWordAtPosition(context: context, charIndex: charIndex)
-        NSLog("[Leo UI] Resolved word: \(word)")
-
         let entries = DictionaryEngine.shared.lookup(word)
-        NSLog("[Leo UI] Dictionary entries: \(entries.count) for '\(word)'")
-        wordEntries = entries
-        wordFamiliarity = familiarityTracker?.state(for: word) ?? .unknown
-        wordFrequency = FrequencyEngine.shared.lookup(word)
-
-        // Record encounter
         let pinyin = entries.first?.pinyinDisplay ?? ""
         let def = entries.first?.definitions.first ?? ""
         familiarityTracker?.recordEncounter(word, pinyin: pinyin, definition: def)
 
-        selectedWord = word
-        NSLog("[Leo UI] Popup showing for '\(word)'")
+        NSLog("[Leo UI] Encounter recorded for '\(word)'")
+    }
+
+    // Called when the user taps "I know this" or "Add to review" inside the JS popup.
+    private func handlePopupAction(_ action: FoliateReaderView.PopupAction, word: String) {
+        NSLog("[Leo UI] Popup action: \(action) for '\(word)'")
+        switch action {
+        case .markKnown:
+            familiarityTracker?.markAsKnown(word)
+        case .addToSRS:
+            familiarityTracker?.markAsLearning(word)
+            let fsrs = FSRSEngine(modelContext: modelContext)
+            if fsrs.card(for: word) == nil {
+                _ = fsrs.createCard(for: word)
+            }
+        }
     }
 }
 

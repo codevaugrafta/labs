@@ -2,15 +2,29 @@ import SwiftUI
 import WebKit
 
 /// EPUB reader powered by foliate-js via localhost HTTP server.
-/// This replaces the broken custom EPUBParser + WKWebView loadHTMLString approach.
+/// Dictionary lookups are shown as a floating HTML popup rendered inside the WKWebView,
+/// positioned near the tapped word. No SwiftUI overlay is needed.
 struct FoliateReaderView: NSViewRepresentable {
     let bookFilePath: String
     let bookId: String
     let theme: ReadingTheme
-    let onWordTapped: (String, String, Int, CGFloat, CGFloat) -> Void // word, context, charIndex, x, y
+
+    /// Called when the user taps a word. The coordinator performs a dictionary lookup
+    /// and renders the popup directly in JS. This closure receives the resolved word,
+    /// entries, and coordinates so that ReaderView can keep its session/familiarity state.
+    let onWordTapped: (String, String, Int, CGFloat, CGFloat) -> Void
+
+    /// Called when the user presses "I know this" or "Add to review" inside the JS popup.
+    /// The ReaderView uses this to drive FamiliarityTracker / FSRSEngine.
+    let onPopupAction: (_ action: PopupAction, _ word: String) -> Void
+
+    enum PopupAction {
+        case markKnown
+        case addToSRS
+    }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onWordTapped: onWordTapped)
+        Coordinator(onWordTapped: onWordTapped, onPopupAction: onPopupAction)
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -73,13 +87,18 @@ struct FoliateReaderView: NSViewRepresentable {
 
     class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
         let onWordTapped: (String, String, Int, CGFloat, CGFloat) -> Void
+        let onPopupAction: (PopupAction, String) -> Void
         weak var webView: WKWebView?
         var bookId: String = ""
         var currentTheme: String = "light"
         private var pageLoaded = false
 
-        init(onWordTapped: @escaping (String, String, Int, CGFloat, CGFloat) -> Void) {
+        init(
+            onWordTapped: @escaping (String, String, Int, CGFloat, CGFloat) -> Void,
+            onPopupAction: @escaping (PopupAction, String) -> Void
+        ) {
             self.onWordTapped = onWordTapped
+            self.onPopupAction = onPopupAction
         }
 
         // JS → Swift messages
@@ -118,8 +137,33 @@ struct FoliateReaderView: NSViewRepresentable {
                 }
                 let char = payload["char"] as? String ?? ""
                 NSLog("[Leo Bridge] Word tap: char=\(char), context=\(context.prefix(20))..., idx=\(charIndex)")
+
+                // Resolve word + look up dictionary on the calling thread (already main via WK)
+                let parser = ChineseParser()
+                let word = parser.resolveWordAtPosition(context: context, charIndex: charIndex)
+                let entries = DictionaryEngine.shared.lookup(word)
+                let freqData = FrequencyEngine.shared.lookup(word)
+
+                NSLog("[Leo Bridge] Resolved word='\(word)', \(entries.count) entries")
+
+                // Notify ReaderView so it can update familiarity tracker / session
                 DispatchQueue.main.async {
                     self.onWordTapped(char, context, charIndex, x, y)
+                }
+
+                // Build popup data and call showPopup() in JS
+                showPopupInJS(word: word, entries: entries, freqData: freqData, x: x, y: y)
+
+            case "popupAction":
+                let action = payload["action"] as? String ?? ""
+                let word = payload["word"] as? String ?? ""
+                NSLog("[Leo Bridge] Popup action: \(action) for '\(word)'")
+                DispatchQueue.main.async {
+                    switch action {
+                    case "markKnown": self.onPopupAction(.markKnown, word)
+                    case "addToSRS":  self.onPopupAction(.addToSRS, word)
+                    default: break
+                    }
                 }
 
             case "relocate":
@@ -136,6 +180,46 @@ struct FoliateReaderView: NSViewRepresentable {
                 NSLog("[Leo Bridge] Unknown message type: \(type)")
             }
         }
+
+        // MARK: - In-JS popup
+
+        private func showPopupInJS(
+            word: String,
+            entries: [DictionaryEngine.Entry],
+            freqData: FrequencyEngine.FrequencyData,
+            x: CGFloat,
+            y: CGFloat
+        ) {
+            let pinyin = entries.first?.pinyinDisplay ?? ""
+            let definitions = entries.prefix(2).flatMap { $0.definitions.prefix(4) }
+            var popupData: [String: Any] = [
+                "word": word,
+                "pinyin": pinyin,
+                "definitions": Array(definitions),
+                "frequencyTier": freqData.tier.rawValue,
+                "frequencyColor": freqData.tier.color,
+            ]
+            if let hsk = freqData.hskLevel {
+                popupData["hskLevel"] = hsk
+            }
+
+            guard let jsonData = try? JSONSerialization.data(withJSONObject: popupData),
+                  let jsonStr = String(data: jsonData, encoding: .utf8) else {
+                NSLog("[Leo Bridge] Failed to serialize popup data")
+                return
+            }
+
+            let js = "showPopup(\(x), \(y), \(jsonStr))"
+            DispatchQueue.main.async {
+                self.webView?.evaluateJavaScript(js) { _, error in
+                    if let error {
+                        NSLog("[Leo Bridge] showPopup JS error: \(error)")
+                    }
+                }
+            }
+        }
+
+        // MARK: - Book opening
 
         private func openCurrentBook() {
             guard let bookURL = LocalServer.shared.bookURL(id: bookId) else {
