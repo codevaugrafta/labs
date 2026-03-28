@@ -291,37 +291,64 @@ struct EPUBWebView: NSViewRepresentable {
             :root {
                 --bg: \(theme.cssBackground);
                 --fg: \(theme.cssForeground);
+                --accent: \(theme.cssAccent);
             }
-            * { box-sizing: border-box; }
-            html, body {
+            * { box-sizing: border-box; margin: 0; padding: 0; }
+            html {
                 background: var(--bg) !important;
                 color: var(--fg) !important;
-                font-family: -apple-system, "Noto Sans SC", "PingFang SC", sans-serif;
+                scroll-behavior: smooth;
+            }
+            body {
+                background: var(--bg) !important;
+                color: var(--fg) !important;
+                font-family: "PingFang SC", "Noto Sans SC", "Hiragino Sans GB",
+                             "Source Han Sans CN", -apple-system, sans-serif;
                 font-size: 18px;
-                line-height: 1.8;
-                margin: 0;
-                padding: 40px 60px;
-                max-width: 720px;
-                margin-left: auto;
-                margin-right: auto;
+                line-height: 2.0;
+                letter-spacing: 0.02em;
+                padding: 48px 64px;
+                max-width: 700px;
+                margin: 0 auto;
                 cursor: default;
                 -webkit-user-select: none;
                 user-select: none;
+                -webkit-font-smoothing: antialiased;
+                text-rendering: optimizeLegibility;
             }
-            p { margin-bottom: 1em; text-align: justify; }
-            h1, h2, h3 { color: var(--fg); margin-top: 1.5em; }
-            img { max-width: 100%; height: auto; }
-            a { color: inherit; }
+            p {
+                margin-bottom: 1.2em;
+                text-align: justify;
+                text-indent: 2em;
+            }
+            p:first-child { text-indent: 0; }
+            h1, h2, h3 {
+                color: var(--fg);
+                margin-top: 2em;
+                margin-bottom: 0.8em;
+                text-indent: 0;
+                text-align: center;
+                font-weight: 600;
+            }
+            h1 { font-size: 1.5em; }
+            h2 { font-size: 1.3em; }
+            h3 { font-size: 1.1em; }
+            img { max-width: 100%; height: auto; display: block; margin: 1em auto; }
+            a { color: inherit; text-decoration: none; }
+            /* Clean up EPUB inline styles that fight with our theme */
+            span[style] { font-size: inherit !important; font-family: inherit !important; }
             .leo-char {
                 cursor: pointer;
-                border-radius: 1px;
-                transition: background 0.1s;
+                border-radius: 2px;
+                transition: background 0.12s ease;
+                padding: 0 1px;
             }
             .leo-char:hover {
-                background: rgba(255, 165, 0, 0.15);
+                background: rgba(255, 165, 0, 0.18);
             }
             .leo-char.selected {
-                background: rgba(255, 165, 0, 0.3);
+                background: rgba(255, 165, 0, 0.35);
+                border-radius: 3px;
             }
         </style>
         """
@@ -563,6 +590,14 @@ enum ReadingTheme: String, CaseIterable, Identifiable {
         case .light: "#1A1A1A"
         case .dark: "#E5E5E5"
         case .sepia: "#4A3520"
+        }
+    }
+
+    var cssAccent: String {
+        switch self {
+        case .light: "#E67E22"
+        case .dark: "#F39C12"
+        case .sepia: "#D35400"
         }
     }
 }
