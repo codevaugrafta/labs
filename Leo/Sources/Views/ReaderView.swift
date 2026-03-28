@@ -26,6 +26,7 @@ struct ReaderView: View {
                     FoliateReaderView(
                         bookFilePath: book.filePath,
                         bookId: book.id.uuidString,
+                        theme: theme,
                         onWordTapped: handleWordTap
                     )
                 }

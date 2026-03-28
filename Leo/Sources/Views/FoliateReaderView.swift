@@ -6,6 +6,7 @@ import WebKit
 struct FoliateReaderView: NSViewRepresentable {
     let bookFilePath: String
     let bookId: String
+    let theme: ReadingTheme
     let onWordTapped: (String, String, Int, CGFloat, CGFloat) -> Void // word, context, charIndex, x, y
 
     func makeCoordinator() -> Coordinator {
@@ -52,6 +53,20 @@ struct FoliateReaderView: NSViewRepresentable {
                 webView.load(URLRequest(url: readerURL))
             }
         }
+
+        // Apply theme changes
+        if context.coordinator.currentTheme != theme.rawValue {
+            context.coordinator.currentTheme = theme.rawValue
+            let themeData: [String: String] = switch theme {
+            case .light: ["bg": "#FFFFFF", "fg": "#1A1A1A"]
+            case .dark: ["bg": "#1E1E1E", "fg": "#D4D4D4"]
+            case .sepia: ["bg": "#F5EDDC", "fg": "#4A3520"]
+            }
+            let json = try? JSONSerialization.data(withJSONObject: themeData)
+            if let json, let jsonStr = String(data: json, encoding: .utf8) {
+                webView.evaluateJavaScript("setTheme(\(jsonStr))")
+            }
+        }
     }
 
     // MARK: - Coordinator
@@ -60,6 +75,7 @@ struct FoliateReaderView: NSViewRepresentable {
         let onWordTapped: (String, String, Int, CGFloat, CGFloat) -> Void
         weak var webView: WKWebView?
         var bookId: String = ""
+        var currentTheme: String = "light"
         private var pageLoaded = false
 
         init(onWordTapped: @escaping (String, String, Int, CGFloat, CGFloat) -> Void) {
