@@ -218,6 +218,23 @@ function injectClickHandlers(doc, chapterIndex) {
     // Also inject navigation
     injectNavigationHandlers(doc)
     doc.addEventListener('click', (event) => {
+        // Guard 1: the element directly under the pointer must be (or contain) a
+        // text node — not a bare body/html/empty div.  caretRangeFromPoint snaps
+        // to the nearest glyph even when the click lands in blank margin, so we
+        // reject the event before calling it when the pointer is over empty space.
+        const hitEl = doc.elementFromPoint(event.clientX, event.clientY)
+        if (!hitEl) return
+        const tag = hitEl.tagName?.toUpperCase()
+        // Whitelist only elements that normally host inline text.
+        const TEXT_HOSTS = new Set(['P', 'SPAN', 'A', 'LI', 'TD', 'TH',
+                                     'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
+                                     'BLOCKQUOTE', 'DIV', 'SECTION', 'ARTICLE',
+                                     'RUBY', 'RB', 'RT', 'EM', 'STRONG',
+                                     'CITE', 'B', 'I', 'S', 'U'])
+        if (!TEXT_HOSTS.has(tag)) return
+        // Reject if the element has no text content at all.
+        if (!hitEl.textContent?.trim()) return
+
         // caretRangeFromPoint returns the text position at the click coordinate.
         // Coordinates are relative to the iframe's own viewport — correct here
         // because we're listening on the iframe's document directly.
@@ -252,8 +269,17 @@ function injectClickHandlers(doc, chapterIndex) {
         const context = codePoints.slice(contextStart, contextEnd).join('')
         const charIndexInContext = cpIndex - contextStart
 
-        // Get bounding rect of the clicked character for popup positioning.
+        // Guard 2: proximity check — the click must be within ~30px horizontally
+        // and ~40px vertically of the character's bounding rect.  This catches
+        // clicks in line-spacing gaps or wide padding that caretRangeFromPoint
+        // would otherwise snap to the nearest glyph on an adjacent line.
         const rect = range.getBoundingClientRect()
+        const H_SLOP = 30
+        const V_SLOP = 40
+        const cx = event.clientX
+        const cy = event.clientY
+        if (cx < rect.left - H_SLOP || cx > rect.right  + H_SLOP) return
+        if (cy < rect.top  - V_SLOP || cy > rect.bottom + V_SLOP) return
 
         postToSwift('wordTap', {
             char: clickedChar,

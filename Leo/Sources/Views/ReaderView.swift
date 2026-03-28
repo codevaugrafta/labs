@@ -10,29 +10,29 @@ struct ReaderView: View {
     @State private var wordEntries: [DictionaryEngine.Entry] = []
     @State private var wordFamiliarity: FamiliarityState = .unknown
     @State private var wordFrequency: FrequencyEngine.FrequencyData?
-    @State private var popupPosition: CGPoint = .zero
     @State private var familiarityTracker: FamiliarityTracker?
     @StateObject private var sessionEngine = ReadingSessionEngine()
     @Environment(\.modelContext) private var modelContext
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            // Reader content
-            Group {
-                if book.format == .pdf {
-                    PDFReaderView(filePath: book.filePath)
-                } else {
-                    // EPUB via foliate-js + localhost server
-                    FoliateReaderView(
-                        bookFilePath: book.filePath,
-                        bookId: book.id.uuidString,
-                        theme: theme,
-                        onWordTapped: handleWordTap
-                    )
-                }
+        // Reader content fills the full area.
+        // The popup is anchored to the bottom via safeAreaInset — it slides up
+        // from the window edge and never overlaps the reading text.
+        // No coordinate mapping needed: iframe coords are not used.
+        Group {
+            if book.format == .pdf {
+                PDFReaderView(filePath: book.filePath)
+            } else {
+                // EPUB via foliate-js + localhost server
+                FoliateReaderView(
+                    bookFilePath: book.filePath,
+                    bookId: book.id.uuidString,
+                    theme: theme,
+                    onWordTapped: handleWordTap
+                )
             }
-
-            // Floating word popup
+        }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             if let word = selectedWord {
                 WordPopupView(
                     word: word,
@@ -53,9 +53,8 @@ struct ReaderView: View {
                         selectedWord = nil
                     }
                 )
-                .position(x: popupPosition.x, y: popupPosition.y)
-                .transition(.opacity.combined(with: .scale(scale: 0.95)))
-                .animation(.easeOut(duration: 0.15), value: selectedWord)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .animation(.easeOut(duration: 0.2), value: selectedWord)
             }
         }
         .toolbar {
@@ -128,9 +127,7 @@ struct ReaderView: View {
         familiarityTracker?.recordEncounter(word, pinyin: pinyin, definition: def)
 
         selectedWord = word
-        // Position popup in center-ish area since iframe coords may not map to window coords
-        popupPosition = CGPoint(x: 400, y: 300)
-        NSLog("[Leo UI] Popup should be visible for '\(word)'")
+        NSLog("[Leo UI] Popup showing for '\(word)'")
     }
 }
 
