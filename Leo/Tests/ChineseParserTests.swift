@@ -61,6 +61,60 @@ struct ChineseParserTests {
         #expect(!english.isChineseCharacter)
         #expect(!number.isChineseCharacter)
     }
+
+    // MARK: - Dictionary-Corrected Segmentation Tests
+
+    @Test("Resolves word at clicked character position")
+    func resolveWordAtPosition() {
+        DictionaryEngine.shared.load()
+        // Click on 欢 in 我喜欢吃苹果 → should resolve to 喜欢
+        let word = parser.resolveWordAtPosition(context: "我喜欢吃苹果", charIndex: 2)
+        #expect(word == "喜欢" || word == "喜欢吃" || word.contains("喜欢"),
+               "Expected 喜欢, got \(word)")
+    }
+
+    @Test("Resolves multi-char expression 不得不")
+    func resolveExpression() {
+        DictionaryEngine.shared.load()
+        let word = parser.resolveWordAtPosition(context: "我不得不去学校", charIndex: 2)
+        #expect(word == "不得不", "Expected 不得不, got \(word)")
+    }
+
+    @Test("Resolves single character at position 0")
+    func resolveFirstChar() {
+        DictionaryEngine.shared.load()
+        let word = parser.resolveWordAtPosition(context: "我喜欢吃苹果", charIndex: 0)
+        #expect(word == "我", "Expected 我, got \(word)")
+    }
+
+    @Test("Dictionary-corrected segmentation finds multi-char words")
+    func dictCorrectedSegment() {
+        DictionaryEngine.shared.load()
+        let tokens = parser.segmentWords("我喜欢吃苹果")
+        let words = tokens.filter { $0.type == .word }.map(\.text)
+        // Should contain 喜欢 and 苹果 as single tokens
+        let joined = words.joined()
+        #expect(joined == "我喜欢吃苹果", "Joined words: \(words)")
+        #expect(words.contains("喜欢") || words.contains("苹果"),
+               "Should detect multi-char words, got: \(words)")
+    }
+
+    @Test("Chinese punctuation detected")
+    func chinesePunctuation() {
+        let char: Character = "。"
+        #expect(char.isChinesePunctuation)
+        let char2: Character = "，"
+        #expect(char2.isChinesePunctuation)
+    }
+
+    @Test("Tokens preserve text completeness")
+    func tokenCompleteness() {
+        DictionaryEngine.shared.load()
+        let text = "今天天气很好，我想去公园散步。"
+        let tokens = parser.segmentWords(text)
+        let reconstructed = tokens.map(\.text).joined()
+        #expect(reconstructed == text, "Tokens should reconstruct original text")
+    }
 }
 
 @Suite("DictionaryEngine Tests")

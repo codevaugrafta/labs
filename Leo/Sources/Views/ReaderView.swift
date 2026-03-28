@@ -483,55 +483,10 @@ struct EPUBWebView: NSViewRepresentable {
             }
         }
 
-        /// Given a context string and the index of the clicked character,
-        /// use NLTagger to find the word boundary containing that character.
+        /// Resolve the word at the clicked character position.
+        /// Delegates to ChineseParser's dictionary-informed resolution.
         private func resolveWord(in context: String, at charIndex: Int) -> String {
-            let tokens = parser.segmentWords(context)
-
-            // Find which token contains the clicked character index
-            // Count ALL tokens (not just words) to track position correctly
-            var offset = 0
-            for token in tokens {
-                let tokenLength = token.text.count
-                if charIndex >= offset && charIndex < offset + tokenLength {
-                    if token.type == .word {
-                        return token.text
-                    }
-                    break // Clicked on punctuation/whitespace
-                }
-                offset += tokenLength
-            }
-
-            // Fallback: try dictionary lookup with decreasing window sizes
-            // from the clicked position
-            let chars = Array(context)
-            guard charIndex < chars.count else {
-                return String(chars.last ?? Character(" "))
-            }
-
-            // Try 4, 3, 2, 1 character windows starting at clicked position
-            for length in stride(from: min(4, chars.count - charIndex), through: 1, by: -1) {
-                let end = min(charIndex + length, chars.count)
-                let candidate = String(chars[charIndex..<end])
-                if DictionaryEngine.shared.contains(candidate) {
-                    return candidate
-                }
-            }
-
-            // Try windows starting before the clicked position
-            for start in stride(from: max(0, charIndex - 3), through: charIndex, by: 1) {
-                for length in stride(from: min(4, chars.count - start), through: 2, by: -1) {
-                    let end = min(start + length, chars.count)
-                    if end <= charIndex { continue } // must include clicked char
-                    let candidate = String(chars[start..<end])
-                    if DictionaryEngine.shared.contains(candidate) {
-                        return candidate
-                    }
-                }
-            }
-
-            // Ultimate fallback: single character
-            return String(chars[charIndex])
+            parser.resolveWordAtPosition(context: context, charIndex: charIndex)
         }
     }
 }
