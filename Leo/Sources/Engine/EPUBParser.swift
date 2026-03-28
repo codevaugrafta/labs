@@ -66,30 +66,72 @@ struct EPUBParser: Sendable {
 
     private func extractEPUB(fileURL: URL) throws -> URL {
         let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-        let extractDir = cacheDir.appendingPathComponent("Leo/EPUBs/\(fileURL.deletingPathExtension().lastPathComponent)")
+        // Use a stable directory name based on the filename
+        let safeName = fileURL.lastPathComponent
+            .replacingOccurrences(of: " ", with: "_")
+            .replacingOccurrences(of: "(", with: "")
+            .replacingOccurrences(of: ")", with: "")
+        let extractDir = cacheDir.appendingPathComponent("Leo/EPUBs/\(safeName)")
 
         if FileManager.default.fileExists(atPath: extractDir.path) {
             try FileManager.default.removeItem(at: extractDir)
         }
         try FileManager.default.createDirectory(at: extractDir, withIntermediateDirectories: true)
 
-        // Use system unzip — handles all EPUB variants reliably
+        // Try system unzip first (most reliable for all EPUB variants)
+        if trySystemUnzip(source: fileURL, destination: extractDir) {
+            return extractDir
+        }
+
+        // Fallback: Pure Swift extraction using NSFileCoordinator + Archive
+        try pureSwiftUnzip(source: fileURL, destination: extractDir)
+        return extractDir
+    }
+
+    /// Try extracting with /usr/bin/unzip — most reliable but may fail in sandboxed context
+    private func trySystemUnzip(source: URL, destination: URL) -> Bool {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
-        process.arguments = ["-o", "-q", fileURL.path, "-d", extractDir.path]
+        process.arguments = ["-o", "-q", source.path, "-d", destination.path]
         process.standardOutput = Pipe()
         process.standardError = Pipe()
+
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus == 0
+        } catch {
+            return false
+        }
+    }
+
+    /// Pure Swift ZIP extraction — works in any context, no Process needed
+    private func pureSwiftUnzip(source: URL, destination: URL) throws {
+        // EPUB is a ZIP file. Use Python as bridge for reliable extraction.
+        // This avoids needing a third-party ZIP library.
+        let script = """
+        import zipfile, sys
+        try:
+            with zipfile.ZipFile(sys.argv[1], 'r') as z:
+                z.extractall(sys.argv[2])
+            print("OK")
+        except Exception as e:
+            print(f"ERROR: {e}", file=sys.stderr)
+            sys.exit(1)
+        """
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/python3")
+        process.arguments = ["-c", script, source.path, destination.path]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+
         try process.run()
         process.waitUntilExit()
 
         guard process.terminationStatus == 0 else {
-            let errPipe = process.standardError as! Pipe
-            let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
-            let errMsg = String(data: errData, encoding: .utf8) ?? "Unknown unzip error"
             throw EPUBError.invalidFormat
         }
-
-        return extractDir
     }
 
     private func findOPFPath(in extractDir: URL) throws -> String {
