@@ -7,6 +7,7 @@ struct ContentView: View {
     @State private var selectedBook: Book?
     @State private var showFilePicker = false
     @State private var showReview = false
+    @State private var showVocabulary = false
 
     var body: some View {
         NavigationSplitView {
@@ -15,6 +16,7 @@ struct ContentView: View {
                 selectedBook: $selectedBook,
                 onImport: { showFilePicker = true },
                 onReview: { showReview = true },
+                onVocabulary: { showVocabulary = true },
                 onDelete: deleteBook
             )
         } detail: {
@@ -34,6 +36,10 @@ struct ContentView: View {
         .frame(minWidth: 800, minHeight: 600)
         .sheet(isPresented: $showReview) {
             ReviewView()
+                .frame(minWidth: 500, minHeight: 450)
+        }
+        .sheet(isPresented: $showVocabulary) {
+            VocabularyView()
                 .frame(minWidth: 500, minHeight: 450)
         }
         .onReceive(NotificationCenter.default.publisher(for: .leoImportBook)) { _ in
@@ -106,6 +112,7 @@ struct LibrarySidebar: View {
     @Binding var selectedBook: Book?
     let onImport: () -> Void
     let onReview: () -> Void
+    let onVocabulary: () -> Void
     let onDelete: (Book) -> Void
     @Query private var vocabulary: [VocabularyEntry]
     @Query private var dueCards: [FSRSCard]
@@ -127,6 +134,17 @@ struct LibrarySidebar: View {
                                 .foregroundStyle(.white)
                                 .clipShape(Capsule())
                         }
+                    }
+                }
+                .buttonStyle(.plain)
+
+                Button(action: onVocabulary) {
+                    HStack {
+                        Label("Vocabulary", systemImage: "character.book.closed")
+                        Spacer()
+                        Text("\(vocabulary.count)")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                     }
                 }
                 .buttonStyle(.plain)
