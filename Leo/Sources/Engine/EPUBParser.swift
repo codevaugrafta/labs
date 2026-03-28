@@ -66,12 +66,9 @@ struct EPUBParser: Sendable {
 
     private func extractEPUB(fileURL: URL) throws -> URL {
         let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
-        // Use a stable directory name based on the filename
-        let safeName = fileURL.lastPathComponent
-            .replacingOccurrences(of: " ", with: "_")
-            .replacingOccurrences(of: "(", with: "")
-            .replacingOccurrences(of: ")", with: "")
-        let extractDir = cacheDir.appendingPathComponent("Leo/EPUBs/\(safeName)")
+        // Use a hash-based directory name to avoid path encoding issues with Chinese filenames
+        let hashName = String(fileURL.lastPathComponent.hashValue, radix: 16, uppercase: false)
+        let extractDir = cacheDir.appendingPathComponent("Leo/EPUBs/\(hashName)")
 
         if FileManager.default.fileExists(atPath: extractDir.path) {
             try FileManager.default.removeItem(at: extractDir)

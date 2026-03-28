@@ -22,6 +22,7 @@ struct ContentView: View {
         } detail: {
             if let book = selectedBook {
                 ReaderView(book: book)
+                    .id(book.id) // Force fresh view when switching books
             } else {
                 EmptyLibraryView(onImport: { showFilePicker = true })
             }

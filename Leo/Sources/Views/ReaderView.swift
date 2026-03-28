@@ -178,33 +178,42 @@ struct ReaderView: View {
     private func openBook() async {
         let filePath = book.filePath
         let format = book.format
+        NSLog("[Leo] Opening book: \(filePath) format=\(format)")
+
         guard FileManager.default.fileExists(atPath: filePath) else {
             error = "File not found: \(filePath)"
+            NSLog("[Leo] ERROR: File not found")
             return
         }
 
         book.lastOpenedAt = Date()
 
-        // Run parsing off main actor to avoid blocking UI
         if format == .pdf {
+            NSLog("[Leo] Parsing PDF...")
             do {
                 let url = URL(fileURLWithPath: filePath)
-                let pages = try await Task.detached(priority: .userInitiated) {
-                    let pdfParser = PDFParser()
-                    let pdfContent = try pdfParser.parse(fileURL: url)
-                    return pdfContent.pages.map(\.text)
-                }.value
-                pdfPages = pages
+                let pdfParser = PDFParser()
+                let pdfContent = try pdfParser.parse(fileURL: url)
+                NSLog("[Leo] PDF parsed: \(pdfContent.pageCount) pages")
+                pdfPages = pdfContent.pages.map(\.text)
+                if let firstPage = pdfPages?.first {
+                    NSLog("[Leo] First page preview: \(firstPage.prefix(100))")
+                }
             } catch {
-                self.error = error.localizedDescription
+                self.error = "PDF error: \(error.localizedDescription)"
+                NSLog("[Leo] PDF ERROR: \(error)")
             }
         } else {
+            NSLog("[Leo] Parsing EPUB...")
             do {
                 let url = URL(fileURLWithPath: filePath)
-                let parsed = try await Task.detached(priority: .userInitiated) {
-                    let parser = EPUBParser()
-                    return try parser.parse(fileURL: url)
-                }.value
+                let parser = EPUBParser()
+                let parsed = try parser.parse(fileURL: url)
+                NSLog("[Leo] EPUB parsed: \(parsed.chapters.count) chapters, title=\(parsed.title)")
+                NSLog("[Leo] Base path: \(parsed.basePath)")
+                if let first = parsed.chapters.first {
+                    NSLog("[Leo] First chapter: \(first.title), html length=\(first.htmlContent.count)")
+                }
                 content = parsed
                 if !parsed.title.isEmpty {
                     book.title = parsed.title
@@ -213,7 +222,8 @@ struct ReaderView: View {
                     book.author = parsed.author
                 }
             } catch {
-                self.error = "Failed to open: \(error.localizedDescription)"
+                self.error = "EPUB error: \(error.localizedDescription)"
+                NSLog("[Leo] EPUB ERROR: \(error)")
             }
         }
     }

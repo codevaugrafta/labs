@@ -10,6 +10,7 @@ struct LeoApp: App {
     let modelContainer: ModelContainer
 
     init() {
+        NSLog("[Leo] App starting...")
         let schema = Schema([
             Book.self,
             VocabularyEntry.self,
@@ -19,6 +20,7 @@ struct LeoApp: App {
         let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
         do {
             modelContainer = try ModelContainer(for: schema, configurations: [config])
+            NSLog("[Leo] ModelContainer created successfully")
         } catch {
             fatalError("Failed to create ModelContainer: \(error)")
         }
