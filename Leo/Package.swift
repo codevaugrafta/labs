@@ -11,15 +11,20 @@ let package = Package(
         .executable(name: "Leo", targets: ["Leo"])
     ],
     dependencies: [
-        .package(url: "https://github.com/scinfu/SwiftSoup.git", from: "2.7.0"),
+        .package(url: "https://github.com/httpswift/swifter.git", .upToNextMajor(from: "1.5.0")),
     ],
     targets: [
         .executableTarget(
             name: "Leo",
-            dependencies: ["SwiftSoup"],
+            dependencies: [
+                .product(name: "Swifter", package: "swifter"),
+            ],
             path: "Sources",
             exclude: ["Resources/Info.plist", "Resources/Leo.entitlements"],
-            resources: [.copy("Resources/Dictionary")]
+            resources: [
+                .copy("Resources/Dictionary"),
+                .copy("Resources/web"),
+            ]
         ),
         .testTarget(
             name: "LeoTests",

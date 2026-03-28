@@ -41,10 +41,15 @@ cp "Sources/Resources/Info.plist" "${APP_BUNDLE}/Contents/"
 if [ -d "${BUILD_DIR}/Leo_Leo.bundle" ]; then
     cp -r "${BUILD_DIR}/Leo_Leo.bundle" "${APP_BUNDLE}/Contents/Resources/"
 fi
-# Also copy dictionary directly as fallback
+# Copy dictionary directly as fallback
 mkdir -p "${APP_BUNDLE}/Contents/Resources/Dictionary"
 if [ -f "Sources/Resources/Dictionary/cedict.txt" ]; then
     cp "Sources/Resources/Dictionary/cedict.txt" "${APP_BUNDLE}/Contents/Resources/Dictionary/"
+fi
+
+# Copy web resources directly (foliate-js, reader.html, reader.js)
+if [ -d "Sources/Resources/web" ]; then
+    cp -r "Sources/Resources/web" "${APP_BUNDLE}/Contents/Resources/"
 fi
 
 # Copy entitlements for signing

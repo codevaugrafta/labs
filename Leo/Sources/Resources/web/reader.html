@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
+            overflow: hidden;
+            background: var(--bg, #FFFFFF);
+            color: var(--fg, #1A1A1A);
+        }
+        #reader-container {
+            width: 100%;
+            height: 100%;
+        }
+        foliate-view {
+            width: 100%;
+            height: 100%;
+        }
+        #loading {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100%;
+            font-family: -apple-system, sans-serif;
+            color: #888;
+        }
+        #error {
+            display: none;
+            padding: 2em;
+            color: #c00;
+            font-family: -apple-system, sans-serif;
+        }
+    </style>
+</head>
+<body>
+    <div id="reader-container">
+        <div id="loading">Loading...</div>
+        <div id="error"></div>
+    </div>
+    <script type="module" src="reader.js"></script>
+</body>
+</html>

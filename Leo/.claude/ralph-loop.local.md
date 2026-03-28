@@ -1,10 +1,10 @@
 ---
 active: true
-iteration: 3
+iteration: 1
 session_id: 
 max_iterations: 0
 completion_promise: null
-started_at: "2026-03-28T18:29:48Z"
+started_at: "2026-03-28T21:06:43Z"
 ---
 
-proceed until i stop you. Leverage the xcode mcp to test and verify ui/ux. if you need better tools for testing use /last30days and tell me what do you need. Proceed. Full power. BismiLlah. ultrathink
+proceed with ralph loops and use full power and agents. BismiLlah. For coding use sonnet 4.6. You, opus you are just the head and the scrutinizer. BismiLlah. ultrathink
