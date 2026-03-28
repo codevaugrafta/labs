@@ -5,6 +5,7 @@ import PDFKit
 struct ReaderView: View {
     let book: Book
     @State private var content: EPUBParser.EPUBContent?
+    @State private var pdfPages: [String]? // extracted text per page
     @State private var currentChapterIndex = 0
     @State private var error: String?
     @State private var theme: ReadingTheme = .light
@@ -20,9 +21,29 @@ struct ReaderView: View {
     var body: some View {
         ZStack(alignment: .topLeading) {
             Group {
-                if book.format == .pdf {
-                    // PDF rendering via Apple PDFKit
-                    PDFReaderView(filePath: book.filePath)
+                if book.format == .pdf, let pdfContent = pdfPages {
+                    // PDF rendered as styled text (same as EPUB) for Chinese learning
+                    VStack(spacing: 0) {
+                        EPUBWebView(
+                            chapter: EPUBParser.Chapter(
+                                id: "pdf-\(currentChapterIndex)",
+                                title: "Page \(currentChapterIndex + 1)",
+                                href: "",
+                                htmlContent: pdfPageToHTML(pdfContent, page: currentChapterIndex)
+                            ),
+                            basePath: URL(fileURLWithPath: NSTemporaryDirectory()),
+                            theme: theme,
+                            onWordTapped: handleWordTap
+                        )
+
+                        ChapterNavigationBar(
+                            currentIndex: currentChapterIndex,
+                            totalChapters: pdfContent.count,
+                            chapterTitle: "Page \(currentChapterIndex + 1)",
+                            onPrevious: { currentChapterIndex = max(0, currentChapterIndex - 1) },
+                            onNext: { currentChapterIndex = min(pdfContent.count - 1, currentChapterIndex + 1) }
+                        )
+                    }
                 } else if let content {
                     VStack(spacing: 0) {
                         EPUBWebView(
@@ -158,19 +179,52 @@ struct ReaderView: View {
             return
         }
 
-        do {
-            let parser = EPUBParser()
-            content = try parser.parse(fileURL: url)
-            book.lastOpenedAt = Date()
-            if let title = content?.title, book.title != title {
-                book.title = title
+        book.lastOpenedAt = Date()
+
+        if book.format == .pdf {
+            do {
+                let pdfParser = PDFParser()
+                let pdfContent = try pdfParser.parse(fileURL: url)
+                pdfPages = pdfContent.pages.map(\.text)
+                if book.title.isEmpty || book.title == url.deletingPathExtension().lastPathComponent {
+                    book.title = pdfContent.title
+                }
+            } catch {
+                self.error = error.localizedDescription
             }
-            if let author = content?.author, book.author != author, author != "Unknown" {
-                book.author = author
+        } else {
+            do {
+                let parser = EPUBParser()
+                content = try parser.parse(fileURL: url)
+                if let title = content?.title, !title.isEmpty {
+                    book.title = title
+                }
+                if let author = content?.author, !author.isEmpty, author != "Unknown" {
+                    book.author = author
+                }
+            } catch {
+                self.error = error.localizedDescription
             }
-        } catch {
-            self.error = error.localizedDescription
         }
+    }
+
+    /// Convert extracted PDF page text into styled HTML for the reader view
+    private func pdfPageToHTML(_ pages: [String], page: Int) -> String {
+        guard page >= 0, page < pages.count else { return "<p>Empty page</p>" }
+        let text = pages[page]
+        // Split into paragraphs (double newline) and wrap in <p> tags
+        let paragraphs = text.components(separatedBy: "\n\n")
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .map { "<p>\($0.replacingOccurrences(of: "\n", with: "<br/>"))</p>" }
+            .joined(separator: "\n")
+
+        return """
+        <!DOCTYPE html>
+        <html><head><meta charset="UTF-8"><title>Page \(page + 1)</title></head>
+        <body>\(paragraphs.isEmpty ? "<p>(No text extracted from this page)</p>" : paragraphs)</body>
+        </html>
+        """
     }
 }
 
