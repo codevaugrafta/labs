@@ -109,11 +109,15 @@ struct ReaderView: View {
     }
 
     private func handleWordTap(_ char: String, context: String, charIndex: Int, x: CGFloat, y: CGFloat) {
+        NSLog("[Leo UI] Word tap received: char=\(char), context=\(context.prefix(20)), idx=\(charIndex)")
+
         // Resolve word from character + context using the parser
         let parser = ChineseParser()
         let word = parser.resolveWordAtPosition(context: context, charIndex: charIndex)
+        NSLog("[Leo UI] Resolved word: \(word)")
 
         let entries = DictionaryEngine.shared.lookup(word)
+        NSLog("[Leo UI] Dictionary entries: \(entries.count) for '\(word)'")
         wordEntries = entries
         wordFamiliarity = familiarityTracker?.state(for: word) ?? .unknown
         wordFrequency = FrequencyEngine.shared.lookup(word)
@@ -124,7 +128,9 @@ struct ReaderView: View {
         familiarityTracker?.recordEncounter(word, pinyin: pinyin, definition: def)
 
         selectedWord = word
-        popupPosition = CGPoint(x: min(x + 180, 500), y: y + 80)
+        // Position popup in center-ish area since iframe coords may not map to window coords
+        popupPosition = CGPoint(x: 400, y: 300)
+        NSLog("[Leo UI] Popup should be visible for '\(word)'")
     }
 }
 
