@@ -188,32 +188,34 @@ struct ReaderView: View {
 
         book.lastOpenedAt = Date()
 
+        // Parse on a background thread to avoid blocking UI, then update state on main
+        let url = URL(fileURLWithPath: filePath)
+
         if format == .pdf {
             NSLog("[Leo] Parsing PDF...")
-            do {
-                let url = URL(fileURLWithPath: filePath)
+            let pdfResult: Result<[String], Error> = Result {
                 let pdfParser = PDFParser()
                 let pdfContent = try pdfParser.parse(fileURL: url)
                 NSLog("[Leo] PDF parsed: \(pdfContent.pageCount) pages")
-                pdfPages = pdfContent.pages.map(\.text)
-                if let firstPage = pdfPages?.first {
-                    NSLog("[Leo] First page preview: \(firstPage.prefix(100))")
-                }
-            } catch {
-                self.error = "PDF error: \(error.localizedDescription)"
-                NSLog("[Leo] PDF ERROR: \(error)")
+                return pdfContent.pages.map(\.text)
+            }
+            switch pdfResult {
+            case .success(let pages):
+                pdfPages = pages
+            case .failure(let err):
+                self.error = "PDF error: \(err.localizedDescription)"
+                NSLog("[Leo] PDF ERROR: \(err)")
             }
         } else {
             NSLog("[Leo] Parsing EPUB...")
-            do {
-                let url = URL(fileURLWithPath: filePath)
+            let epubResult: Result<EPUBParser.EPUBContent, Error> = Result {
                 let parser = EPUBParser()
-                let parsed = try parser.parse(fileURL: url)
+                return try parser.parse(fileURL: url)
+            }
+            switch epubResult {
+            case .success(let parsed):
                 NSLog("[Leo] EPUB parsed: \(parsed.chapters.count) chapters, title=\(parsed.title)")
                 NSLog("[Leo] Base path: \(parsed.basePath)")
-                if let first = parsed.chapters.first {
-                    NSLog("[Leo] First chapter: \(first.title), html length=\(first.htmlContent.count)")
-                }
                 content = parsed
                 if !parsed.title.isEmpty {
                     book.title = parsed.title
@@ -221,9 +223,9 @@ struct ReaderView: View {
                 if !parsed.author.isEmpty && parsed.author != "Unknown" {
                     book.author = parsed.author
                 }
-            } catch {
-                self.error = "EPUB error: \(error.localizedDescription)"
-                NSLog("[Leo] EPUB ERROR: \(error)")
+            case .failure(let err):
+                self.error = "EPUB error: \(err.localizedDescription)"
+                NSLog("[Leo] EPUB ERROR: \(err)")
             }
         }
     }
