@@ -260,8 +260,15 @@ struct EPUBWebView: NSViewRepresentable {
 
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.setValue(false, forKey: "drawsBackground")
+
+        // Warm up WKWebView (first load can take 10-15 seconds without this)
+        webView.loadHTMLString("<html><body></body></html>", baseURL: nil)
+
         context.coordinator.currentChapterId = chapter.id
-        loadChapter(in: webView)
+        // Small delay to let warmup complete, then load actual content
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.loadChapter(in: webView)
+        }
         return webView
     }
 
@@ -282,7 +289,16 @@ struct EPUBWebView: NSViewRepresentable {
 
     private func loadChapter(in webView: WKWebView) {
         let styledHTML = injectReaderStyles(into: chapter.htmlContent)
-        webView.loadHTMLString(styledHTML, baseURL: basePath)
+
+        // Write styled HTML to a temp file and use loadFileURL for reliable loading.
+        // loadHTMLString + baseURL fails silently in many macOS contexts.
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("Leo")
+        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        let tempFile = tempDir.appendingPathComponent("chapter.html")
+        try? styledHTML.write(to: tempFile, atomically: true, encoding: .utf8)
+
+        // loadFileURL is more reliable than loadHTMLString for file-based content
+        webView.loadFileURL(tempFile, allowingReadAccessTo: basePath.deletingLastPathComponent())
     }
 
     private func injectReaderStyles(into html: String) -> String {
