@@ -191,7 +191,32 @@ function isChinese(char) {
         || (cp >= 0x2F800 && cp <= 0x2FA1F)  // CJK Compatibility Supplement
 }
 
+function injectNavigationHandlers(doc) {
+    // Keyboard navigation inside iframe documents
+    doc.addEventListener('keydown', (e) => {
+        if (!view.renderer) return
+        switch (e.key) {
+            case 'ArrowRight':
+            case 'PageDown':
+                e.preventDefault()
+                view.renderer.next()
+                break
+            case 'ArrowLeft':
+            case 'PageUp':
+                e.preventDefault()
+                view.renderer.prev()
+                break
+            case ' ':
+                e.preventDefault()
+                view.renderer.next()
+                break
+        }
+    })
+}
+
 function injectClickHandlers(doc, chapterIndex) {
+    // Also inject navigation
+    injectNavigationHandlers(doc)
     doc.addEventListener('click', (event) => {
         // caretRangeFromPoint returns the text position at the click coordinate.
         // Coordinates are relative to the iframe's own viewport — correct here

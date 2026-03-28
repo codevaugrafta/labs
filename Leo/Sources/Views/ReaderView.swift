@@ -4,6 +4,7 @@ import PDFKit
 
 struct ReaderView: View {
     let book: Book
+    @State private var theme: ReadingTheme = .light
     @State private var error: String?
     @State private var selectedWord: String?
     @State private var wordEntries: [DictionaryEngine.Entry] = []
@@ -57,6 +58,20 @@ struct ReaderView: View {
             }
         }
         .toolbar {
+            // Theme picker
+            ToolbarItem(placement: .automatic) {
+                Picker("Theme", selection: $theme) {
+                    ForEach(ReadingTheme.allCases) { t in
+                        Text(t.label).tag(t)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: theme) { _, newTheme in
+                    // Send theme to foliate-js via JS bridge
+                    // FoliateReaderView will pick this up
+                }
+            }
+
             // Reading session timer
             ToolbarItem(placement: .automatic) {
                 if sessionEngine.isActive {
@@ -131,4 +146,22 @@ struct PDFReaderView: NSViewRepresentable {
     }
 
     func updateNSView(_ pdfView: PDFView, context: Context) {}
+}
+
+// MARK: - Reading Theme
+
+enum ReadingTheme: String, CaseIterable, Identifiable {
+    case light
+    case dark
+    case sepia
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .light: "Light"
+        case .dark: "Dark"
+        case .sepia: "Sepia"
+        }
+    }
 }
