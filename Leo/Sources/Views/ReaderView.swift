@@ -290,15 +290,13 @@ struct EPUBWebView: NSViewRepresentable {
     private func loadChapter(in webView: WKWebView) {
         let styledHTML = injectReaderStyles(into: chapter.htmlContent)
 
-        // Write styled HTML to a temp file and use loadFileURL for reliable loading.
-        // loadHTMLString + baseURL fails silently in many macOS contexts.
-        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent("Leo")
-        try? FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        let tempFile = tempDir.appendingPathComponent("chapter.html")
-        try? styledHTML.write(to: tempFile, atomically: true, encoding: .utf8)
+        // Write styled HTML INTO the EPUB extraction directory so images/CSS resolve.
+        // loadFileURL is more reliable than loadHTMLString for file-based content.
+        let styledFile = basePath.appendingPathComponent("_leo_styled.html")
+        try? styledHTML.write(to: styledFile, atomically: true, encoding: .utf8)
 
-        // loadFileURL is more reliable than loadHTMLString for file-based content
-        webView.loadFileURL(tempFile, allowingReadAccessTo: basePath.deletingLastPathComponent())
+        // Allow read access to the entire extraction directory (for images, CSS, fonts)
+        webView.loadFileURL(styledFile, allowingReadAccessTo: basePath)
     }
 
     private func injectReaderStyles(into html: String) -> String {
