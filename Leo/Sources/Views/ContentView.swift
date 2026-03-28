@@ -131,9 +131,15 @@ struct LibrarySidebar: View {
             }
 
             Section("Library") {
+                Button(action: onImport) {
+                    Label("Import Book", systemImage: "plus.circle.fill")
+                        .foregroundStyle(.blue)
+                }
+                .buttonStyle(.plain)
+
                 ForEach(books) { book in
                     HStack {
-                        Image(systemName: "book.closed.fill")
+                        Image(systemName: book.format == .pdf ? "doc.fill" : "book.closed.fill")
                             .foregroundStyle(.secondary)
                         VStack(alignment: .leading) {
                             Text(book.title)
@@ -153,7 +159,7 @@ struct LibrarySidebar: View {
                 Button(action: onImport) {
                     Image(systemName: "plus")
                 }
-                .help("Import EPUB")
+                .help("Import Book (Cmd+O)")
             }
         }
         .navigationTitle("Leo")

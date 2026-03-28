@@ -1,5 +1,4 @@
 import Foundation
-import Zip
 import SwiftSoup
 
 /// Parses an EPUB file into a structured representation.
@@ -73,7 +72,23 @@ struct EPUBParser: Sendable {
             try FileManager.default.removeItem(at: extractDir)
         }
         try FileManager.default.createDirectory(at: extractDir, withIntermediateDirectories: true)
-        try Zip.unzipFile(fileURL, destination: extractDir, overwrite: true, password: nil)
+
+        // Use system unzip — handles all EPUB variants reliably
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+        process.arguments = ["-o", "-q", fileURL.path, "-d", extractDir.path]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+        try process.run()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else {
+            let errPipe = process.standardError as! Pipe
+            let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+            let errMsg = String(data: errData, encoding: .utf8) ?? "Unknown unzip error"
+            throw EPUBError.invalidFormat
+        }
+
         return extractDir
     }
 

@@ -11,13 +11,12 @@ let package = Package(
         .executable(name: "Leo", targets: ["Leo"])
     ],
     dependencies: [
-        .package(url: "https://github.com/marmelroy/Zip.git", from: "2.1.0"),
         .package(url: "https://github.com/scinfu/SwiftSoup.git", from: "2.7.0"),
     ],
     targets: [
         .executableTarget(
             name: "Leo",
-            dependencies: ["Zip", "SwiftSoup"],
+            dependencies: ["SwiftSoup"],
             path: "Sources",
             exclude: ["Resources/Info.plist", "Resources/Leo.entitlements"],
             resources: [.copy("Resources/Dictionary")]

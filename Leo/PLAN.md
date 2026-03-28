@@ -1,5 +1,11 @@
 # Leo — Implementation Plan
 
+## Status: v0.1.0 — All 11 phases COMPLETE
+- 20 Swift source files, 2,600+ LOC
+- 6 test files, 52 tests passing
+- 11 deep modules built and wired
+- App builds and runs on macOS 15
+
 ## Tracer Bullet Phases
 
 Each phase is a thin vertical slice through ALL layers (model → logic → UI → tests).
@@ -7,7 +13,7 @@ Each phase is demoable on its own. macOS only — iOS deferred.
 
 ---
 
-## Phase 1: Skeleton — Read a Book
+## Phase 1: Skeleton — Read a Book ✅ COMPLETE
 **Goal:** Open an EPUB file and render it in a clean SwiftUI window.
 **Demo:** Launch Leo → File > Open → see 活着 rendered in an iBooks-clean reader.
 

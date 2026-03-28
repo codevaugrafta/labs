@@ -1,5 +1,5 @@
 {
-  "originHash" : "6d35ba13d6708ae8e57cfb3cccdd6f311a0251d84c42e56e4f4bd5e7e781d522",
+  "originHash" : "72173b71b1c433196ed7a5d1aa870f4f8bb62b8d9567a45e9fff164f8b3461a4",
   "pins" : [
     {
       "identity" : "swiftsoup",
@@ -8,15 +8,6 @@
       "state" : {
         "revision" : "6c7915e16f729857aec3e99068c361e58a00ed68",
         "version" : "2.13.4"
-      }
-    },
-    {
-      "identity" : "zip",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/marmelroy/Zip.git",
-      "state" : {
-        "revision" : "67fa55813b9e7b3b9acee9c0ae501def28746d76",
-        "version" : "2.1.2"
       }
     }
   ],

@@ -1,5 +1,4 @@
 import Foundation
-import Zip
 
 /// Bidirectional Anki integration.
 /// Import: .apkg → extract cards → map states to FamiliarityTracker
@@ -107,8 +106,17 @@ struct AnkiExporter: Sendable {
         let extractDir = cacheDir.appendingPathComponent("Leo/AnkiImport/\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: extractDir, withIntermediateDirectories: true)
 
-        // .apkg is a ZIP file
-        try Zip.unzipFile(fileURL, destination: extractDir, overwrite: true, password: nil)
+        // .apkg is a ZIP file — use system unzip for reliability
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/unzip")
+        process.arguments = ["-o", "-q", fileURL.path, "-d", extractDir.path]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw AnkiError.invalidFormat("Failed to unzip .apkg file")
+        }
         return extractDir
     }
 
