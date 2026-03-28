@@ -421,11 +421,15 @@ struct EPUBWebView: NSViewRepresentable {
             let tokens = parser.segmentWords(context)
 
             // Find which token contains the clicked character index
+            // Count ALL tokens (not just words) to track position correctly
             var offset = 0
-            for token in tokens where token.type == .word {
+            for token in tokens {
                 let tokenLength = token.text.count
                 if charIndex >= offset && charIndex < offset + tokenLength {
-                    return token.text
+                    if token.type == .word {
+                        return token.text
+                    }
+                    break // Clicked on punctuation/whitespace
                 }
                 offset += tokenLength
             }

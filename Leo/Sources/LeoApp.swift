@@ -1,6 +1,10 @@
 import SwiftUI
 import SwiftData
 
+extension Notification.Name {
+    static let leoImportBook = Notification.Name("leoImportBook")
+}
+
 @main
 struct LeoApp: App {
     let modelContainer: ModelContainer
@@ -25,6 +29,14 @@ struct LeoApp: App {
             ContentView()
         }
         .modelContainer(modelContainer)
+        .commands {
+            CommandGroup(replacing: .newItem) {
+                Button("Import Book...") {
+                    NotificationCenter.default.post(name: .leoImportBook, object: nil)
+                }
+                .keyboardShortcut("o", modifiers: .command)
+            }
+        }
 
         Settings {
             SettingsView()

@@ -35,7 +35,9 @@ struct ContentView: View {
             ReviewView()
                 .frame(minWidth: 500, minHeight: 450)
         }
-        .keyboardShortcut("l", modifiers: .command) // Cmd+L for review (learn)
+        .onReceive(NotificationCenter.default.publisher(for: .leoImportBook)) { _ in
+            showFilePicker = true
+        }
     }
 
     private func handleFileImport(_ result: Result<[URL], Error>) {
