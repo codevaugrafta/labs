@@ -244,15 +244,15 @@ struct EPUBWebView: NSViewRepresentable {
             h1, h2, h3 { color: var(--fg); margin-top: 1.5em; }
             img { max-width: 100%; height: auto; }
             a { color: inherit; }
-            .leo-word {
+            .leo-char {
                 cursor: pointer;
-                border-radius: 2px;
+                border-radius: 1px;
                 transition: background 0.1s;
             }
-            .leo-word:hover {
+            .leo-char:hover {
                 background: rgba(255, 165, 0, 0.15);
             }
-            .leo-word.selected {
+            .leo-char.selected {
                 background: rgba(255, 165, 0, 0.3);
             }
         </style>
@@ -268,66 +268,93 @@ struct EPUBWebView: NSViewRepresentable {
                 || (code >= 0xF900 && code <= 0xFAFF);
         }
 
-        // Wrap Chinese text in clickable spans
+        // Wrap each Chinese character in its own span.
+        // Swift handles word-level grouping via NLTagger when a character is clicked.
         function segmentText(node) {
             if (node.nodeType === Node.TEXT_NODE) {
                 const text = node.textContent;
                 if (!text.trim()) return;
 
                 const frag = document.createDocumentFragment();
-                let buffer = '';
-                let bufferIsChinese = false;
+                let nonChineseBuffer = '';
 
                 for (let i = 0; i < text.length; i++) {
                     const ch = text[i];
-                    const chIsChinese = isChinese(ch);
-
-                    if (chIsChinese !== bufferIsChinese && buffer) {
-                        if (bufferIsChinese) {
-                            const span = document.createElement('span');
-                            span.className = 'leo-word';
-                            span.textContent = buffer;
-                            span.addEventListener('click', handleWordClick);
-                            frag.appendChild(span);
-                        } else {
-                            frag.appendChild(document.createTextNode(buffer));
+                    if (isChinese(ch)) {
+                        // Flush non-Chinese buffer
+                        if (nonChineseBuffer) {
+                            frag.appendChild(document.createTextNode(nonChineseBuffer));
+                            nonChineseBuffer = '';
                         }
-                        buffer = '';
-                    }
-                    buffer += ch;
-                    bufferIsChinese = chIsChinese;
-                }
-
-                if (buffer) {
-                    if (bufferIsChinese) {
+                        // Each Chinese character gets its own span
                         const span = document.createElement('span');
-                        span.className = 'leo-word';
-                        span.textContent = buffer;
-                        span.addEventListener('click', handleWordClick);
+                        span.className = 'leo-char';
+                        span.dataset.offset = i.toString();
+                        span.textContent = ch;
+                        span.addEventListener('click', handleCharClick);
                         frag.appendChild(span);
                     } else {
-                        frag.appendChild(document.createTextNode(buffer));
+                        nonChineseBuffer += ch;
                     }
+                }
+                if (nonChineseBuffer) {
+                    frag.appendChild(document.createTextNode(nonChineseBuffer));
                 }
 
                 node.parentNode.replaceChild(frag, node);
             } else if (node.nodeType === Node.ELEMENT_NODE && !['SCRIPT', 'STYLE'].includes(node.tagName)) {
-                // Process children (collect first to avoid live NodeList issues)
                 Array.from(node.childNodes).forEach(segmentText);
             }
         }
 
-        function handleWordClick(e) {
-            const word = e.target.textContent;
+        function handleCharClick(e) {
+            const clickedChar = e.target.textContent;
             const rect = e.target.getBoundingClientRect();
 
+            // Gather surrounding context: walk siblings to build a Chinese text window
+            // This gives Swift enough context to segment the word properly
+            let contextBefore = '';
+            let contextAfter = '';
+            let charIndex = 0;
+
+            // Collect up to 10 chars before
+            let prev = e.target.previousSibling;
+            let beforeChars = [];
+            while (prev && beforeChars.length < 10) {
+                if (prev.classList && prev.classList.contains('leo-char')) {
+                    beforeChars.unshift(prev.textContent);
+                } else if (prev.nodeType === Node.TEXT_NODE) {
+                    break;
+                }
+                prev = prev.previousSibling;
+            }
+            contextBefore = beforeChars.join('');
+
+            // Collect up to 10 chars after
+            let next = e.target.nextSibling;
+            let afterChars = [];
+            while (next && afterChars.length < 10) {
+                if (next.classList && next.classList.contains('leo-char')) {
+                    afterChars.push(next.textContent);
+                } else if (next.nodeType === Node.TEXT_NODE) {
+                    break;
+                }
+                next = next.nextSibling;
+            }
+            contextAfter = afterChars.join('');
+
+            charIndex = contextBefore.length;
+            const fullContext = contextBefore + clickedChar + contextAfter;
+
             // Remove previous selection
-            document.querySelectorAll('.leo-word.selected').forEach(el => el.classList.remove('selected'));
+            document.querySelectorAll('.leo-char.selected').forEach(el => el.classList.remove('selected'));
             e.target.classList.add('selected');
 
-            // Send to Swift
+            // Send character + context to Swift for word-level resolution
             window.webkit.messageHandlers.wordTap.postMessage({
-                word: word,
+                char: clickedChar,
+                context: fullContext,
+                charIndex: charIndex,
                 x: rect.left,
                 y: rect.bottom
             });
@@ -339,8 +366,6 @@ struct EPUBWebView: NSViewRepresentable {
         document.addEventListener('DOMContentLoaded', function() {
             segmentText(document.body);
         });
-
-        // Also run on load in case DOMContentLoaded already fired
         if (document.readyState !== 'loading') {
             segmentText(document.body);
         }
@@ -363,6 +388,7 @@ struct EPUBWebView: NSViewRepresentable {
     class Coordinator: NSObject, WKScriptMessageHandler {
         let onWordTapped: (String, CGFloat, CGFloat) -> Void
         var currentChapterId: String = ""
+        private let parser = ChineseParser()
 
         init(onWordTapped: @escaping (String, CGFloat, CGFloat) -> Void) {
             self.onWordTapped = onWordTapped
@@ -374,14 +400,66 @@ struct EPUBWebView: NSViewRepresentable {
         ) {
             guard message.name == "wordTap",
                   let body = message.body as? [String: Any],
-                  let word = body["word"] as? String,
+                  let context = body["context"] as? String,
+                  let charIndex = body["charIndex"] as? Int,
                   let x = body["x"] as? CGFloat,
                   let y = body["y"] as? CGFloat else {
                 return
             }
+
+            // Use NLTagger to find the word containing the clicked character
+            let word = resolveWord(in: context, at: charIndex)
+
             DispatchQueue.main.async {
                 self.onWordTapped(word, x, y)
             }
+        }
+
+        /// Given a context string and the index of the clicked character,
+        /// use NLTagger to find the word boundary containing that character.
+        private func resolveWord(in context: String, at charIndex: Int) -> String {
+            let tokens = parser.segmentWords(context)
+
+            // Find which token contains the clicked character index
+            var offset = 0
+            for token in tokens where token.type == .word {
+                let tokenLength = token.text.count
+                if charIndex >= offset && charIndex < offset + tokenLength {
+                    return token.text
+                }
+                offset += tokenLength
+            }
+
+            // Fallback: try dictionary lookup with decreasing window sizes
+            // from the clicked position
+            let chars = Array(context)
+            guard charIndex < chars.count else {
+                return String(chars.last ?? Character(" "))
+            }
+
+            // Try 4, 3, 2, 1 character windows starting at clicked position
+            for length in stride(from: min(4, chars.count - charIndex), through: 1, by: -1) {
+                let end = min(charIndex + length, chars.count)
+                let candidate = String(chars[charIndex..<end])
+                if DictionaryEngine.shared.contains(candidate) {
+                    return candidate
+                }
+            }
+
+            // Try windows starting before the clicked position
+            for start in stride(from: max(0, charIndex - 3), through: charIndex, by: 1) {
+                for length in stride(from: min(4, chars.count - start), through: 2, by: -1) {
+                    let end = min(start + length, chars.count)
+                    if end <= charIndex { continue } // must include clicked char
+                    let candidate = String(chars[start..<end])
+                    if DictionaryEngine.shared.contains(candidate) {
+                        return candidate
+                    }
+                }
+            }
+
+            // Ultimate fallback: single character
+            return String(chars[charIndex])
         }
     }
 }
