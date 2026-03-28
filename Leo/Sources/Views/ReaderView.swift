@@ -67,7 +67,10 @@ struct ReaderView: View {
                     },
                     onAddToSRS: {
                         familiarityTracker?.markAsLearning(word)
-                        // TODO: Create FSRSCard here
+                        let fsrs = FSRSEngine(modelContext: modelContext)
+                        if fsrs.card(for: word) == nil {
+                            _ = fsrs.createCard(for: word)
+                        }
                         selectedWord = nil
                     }
                 )

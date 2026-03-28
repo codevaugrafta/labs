@@ -6,13 +6,15 @@ struct ContentView: View {
     @Query(sort: \Book.lastOpenedAt, order: .reverse) private var books: [Book]
     @State private var selectedBook: Book?
     @State private var showFilePicker = false
+    @State private var showReview = false
 
     var body: some View {
         NavigationSplitView {
             LibrarySidebar(
                 books: books,
                 selectedBook: $selectedBook,
-                onImport: { showFilePicker = true }
+                onImport: { showFilePicker = true },
+                onReview: { showReview = true }
             )
         } detail: {
             if let book = selectedBook {
@@ -29,6 +31,11 @@ struct ContentView: View {
             handleFileImport(result)
         }
         .frame(minWidth: 800, minHeight: 600)
+        .sheet(isPresented: $showReview) {
+            ReviewView()
+                .frame(minWidth: 500, minHeight: 450)
+        }
+        .keyboardShortcut("l", modifiers: .command) // Cmd+L for review (learn)
     }
 
     private func handleFileImport(_ result: Result<[URL], Error>) {
@@ -59,9 +66,17 @@ struct LibrarySidebar: View {
     let books: [Book]
     @Binding var selectedBook: Book?
     let onImport: () -> Void
+    let onReview: () -> Void
 
     var body: some View {
         List(selection: $selectedBook) {
+            Section {
+                Button(action: onReview) {
+                    Label("Review Cards", systemImage: "rectangle.stack")
+                }
+                .buttonStyle(.plain)
+            }
+
             Section("Library") {
                 ForEach(books) { book in
                     HStack {
