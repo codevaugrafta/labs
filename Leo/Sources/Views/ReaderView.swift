@@ -145,8 +145,11 @@ struct ReaderView: View {
         }
         .keyboardShortcut("r", modifiers: .command)
         .task {
-            DictionaryEngine.shared.load()
-            FrequencyEngine.shared.load()
+            // Load dictionary on background thread — takes 4+ seconds for 120K entries
+            Task.detached(priority: .userInitiated) {
+                DictionaryEngine.shared.load()
+                FrequencyEngine.shared.load()
+            }
             familiarityTracker = FamiliarityTracker(modelContext: modelContext)
             sessionEngine.configure(modelContext: modelContext)
             await openBook()
@@ -173,37 +176,44 @@ struct ReaderView: View {
     }
 
     private func openBook() async {
-        let url = URL(fileURLWithPath: book.filePath)
-        guard FileManager.default.fileExists(atPath: book.filePath) else {
-            error = "File not found: \(book.filePath)"
+        let filePath = book.filePath
+        let format = book.format
+        guard FileManager.default.fileExists(atPath: filePath) else {
+            error = "File not found: \(filePath)"
             return
         }
 
         book.lastOpenedAt = Date()
 
-        if book.format == .pdf {
+        // Run parsing off main actor to avoid blocking UI
+        if format == .pdf {
             do {
-                let pdfParser = PDFParser()
-                let pdfContent = try pdfParser.parse(fileURL: url)
-                pdfPages = pdfContent.pages.map(\.text)
-                if book.title.isEmpty || book.title == url.deletingPathExtension().lastPathComponent {
-                    book.title = pdfContent.title
-                }
+                let url = URL(fileURLWithPath: filePath)
+                let pages = try await Task.detached(priority: .userInitiated) {
+                    let pdfParser = PDFParser()
+                    let pdfContent = try pdfParser.parse(fileURL: url)
+                    return pdfContent.pages.map(\.text)
+                }.value
+                pdfPages = pages
             } catch {
                 self.error = error.localizedDescription
             }
         } else {
             do {
-                let parser = EPUBParser()
-                content = try parser.parse(fileURL: url)
-                if let title = content?.title, !title.isEmpty {
-                    book.title = title
+                let url = URL(fileURLWithPath: filePath)
+                let parsed = try await Task.detached(priority: .userInitiated) {
+                    let parser = EPUBParser()
+                    return try parser.parse(fileURL: url)
+                }.value
+                content = parsed
+                if !parsed.title.isEmpty {
+                    book.title = parsed.title
                 }
-                if let author = content?.author, !author.isEmpty, author != "Unknown" {
-                    book.author = author
+                if !parsed.author.isEmpty && parsed.author != "Unknown" {
+                    book.author = parsed.author
                 }
             } catch {
-                self.error = error.localizedDescription
+                self.error = "Failed to open: \(error.localizedDescription)"
             }
         }
     }
