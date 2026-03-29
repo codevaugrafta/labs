@@ -272,6 +272,32 @@ struct FoliateReaderView: NSViewRepresentable {
             webView?.evaluateJavaScript("clearSpeakingHighlight()", completionHandler: nil)
         }
 
+        // MARK: - In-book search
+
+        /// Triggers a full-book search for `query` using foliate-js's search API.
+        /// The JS side highlights all matches and navigates to the first one.
+        func searchInBook(_ query: String) {
+            guard let encoded = try? JSONSerialization.data(withJSONObject: query),
+                  let literal = String(data: encoded, encoding: .utf8) else {
+                NSLog("[Leo Bridge] searchInBook: failed to serialize query")
+                return
+            }
+            webView?.evaluateJavaScript("searchInBook(\(literal))") { _, error in
+                if let error {
+                    NSLog("[Leo Bridge] searchInBook JS error: \(error)")
+                }
+            }
+        }
+
+        /// Clears all search highlights from the JS side.
+        func clearBookSearch() {
+            webView?.evaluateJavaScript("clearSearch()") { _, error in
+                if let error {
+                    NSLog("[Leo Bridge] clearSearch JS error: \(error)")
+                }
+            }
+        }
+
         // JS → Swift messages
         func userContentController(
             _ userContentController: WKUserContentController,

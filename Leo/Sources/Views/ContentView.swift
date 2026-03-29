@@ -17,6 +17,7 @@ struct ContentView: View {
     @State private var ankiImportMessage: String?
     @State private var showReview = false
     @State private var showVocabulary = false
+    @State private var showStats = false
     @State private var pdfConvertError: String?
     @State private var bookImportError: String?
     @State private var pdfPreparationTasks: [UUID: Task<Void, Never>] = [:]
@@ -29,6 +30,7 @@ struct ContentView: View {
                 onImport: presentBookImportPanel,
                 onReview: { showReview = true },
                 onVocabulary: { showVocabulary = true },
+                onStats: { showStats = true },
                 onDelete: deleteBook,
                 onPreparePDFBookView: { preparePDFBookViewIfNeeded($0, userInitiated: true) }
             )
@@ -61,6 +63,10 @@ struct ContentView: View {
         .sheet(isPresented: $showVocabulary) {
             VocabularyView()
                 .frame(minWidth: 500, minHeight: 450)
+        }
+        .sheet(isPresented: $showStats) {
+            ReadingStatsView()
+                .frame(minWidth: 460, minHeight: 400)
         }
         .onReceive(NotificationCenter.default.publisher(for: .leoImportBook)) { _ in
             presentBookImportPanel()
@@ -529,6 +535,7 @@ struct LibrarySidebar: View {
     let onImport: () -> Void
     let onReview: () -> Void
     let onVocabulary: () -> Void
+    let onStats: () -> Void
     let onDelete: (Book) -> Void
     let onPreparePDFBookView: (Book) -> Void
     @Query private var vocabulary: [VocabularyEntry]
@@ -567,6 +574,12 @@ struct LibrarySidebar: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("leo.sidebar.vocabulary")
+
+                Button(action: onStats) {
+                    Label("Reading Stats", systemImage: "chart.bar")
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("leo.sidebar.stats")
             }
 
             Section("Vocabulary") {

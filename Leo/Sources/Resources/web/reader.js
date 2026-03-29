@@ -792,6 +792,89 @@ window.goToTocItem = function(href) {
     }
 }
 
+// --- IN-BOOK SEARCH ---
+
+// Tracks the current search state so clearSearch() can cancel an in-progress search.
+let _searchAbortController = null
+
+/**
+ * Search for `query` across the whole book using foliate-js's built-in search API.
+ * Highlights all matches via view.addAnnotation (the same mechanism used for bookmarks).
+ * Navigates to the first match found in the current section, or the first match overall.
+ * Results are posted back to Swift as searchResults messages.
+ * @param {string} query
+ */
+window.searchInBook = function(query) {
+    if (!query || !query.trim()) {
+        window.clearSearch()
+        return
+    }
+
+    // Cancel any previous search.
+    if (_searchAbortController) {
+        _searchAbortController.abort()
+    }
+    const controller = { aborted: false }
+    _searchAbortController = controller
+
+    // Clear previous highlights before starting.
+    if (view.clearSearch) view.clearSearch()
+
+    void (async () => {
+        try {
+            const results = []
+            let navigated = false
+
+            for await (const result of view.search({ query })) {
+                if (controller.aborted) return
+
+                if (result === 'done') {
+                    postToSwift('searchResults', {
+                        query,
+                        count: results.length,
+                        done: true,
+                    })
+                    return
+                }
+
+                // result.subitems → array of { cfi, excerpt } from a section
+                // result.progress → 0–1 progress float (no match)
+                // result.cfi      → single match (section search mode)
+                if (result.subitems) {
+                    for (const item of result.subitems) {
+                        results.push({ cfi: item.cfi, excerpt: item.excerpt })
+                        if (!navigated && item.cfi) {
+                            navigated = true
+                            try { view.goTo(item.cfi) } catch (_) {}
+                        }
+                    }
+                } else if (result.cfi) {
+                    results.push({ cfi: result.cfi, excerpt: result.excerpt })
+                    if (!navigated) {
+                        navigated = true
+                        try { view.goTo(result.cfi) } catch (_) {}
+                    }
+                }
+                // result.progress is a numeric progress update — skip, no match content.
+            }
+        } catch (err) {
+            if (controller.aborted) return
+            postToSwift('error', { message: err.message, source: 'searchInBook' })
+        }
+    })()
+}
+
+/**
+ * Clear all search highlights and cancel any in-progress search.
+ */
+window.clearSearch = function() {
+    if (_searchAbortController) {
+        _searchAbortController.aborted = true
+        _searchAbortController = null
+    }
+    if (view.clearSearch) view.clearSearch()
+}
+
 // --- BRIDGE UTILITY ---
 
 function postToSwift(type, payload) {

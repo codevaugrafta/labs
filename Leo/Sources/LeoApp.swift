@@ -12,6 +12,9 @@ extension Notification.Name {
     /// Posted by the Coordinator after OpenRouter enriches a word lookup.
     /// `userInfo`: ["word": String, "context": String]
     static let leoContextualDefinitionReady = Notification.Name("leoContextualDefinitionReady")
+    static let leoToggleTOC = Notification.Name("leoToggleTOC")
+    static let leoTogglePinyin = Notification.Name("leoTogglePinyin")
+    static let leoToggleSearch = Notification.Name("leoToggleSearch")
 }
 
 @main
@@ -62,6 +65,34 @@ struct LeoApp: App {
                 Button("Import Anki Deck…") {
                     NotificationCenter.default.post(name: .leoImportAnki, object: nil)
                 }
+            }
+            // Navigation
+            CommandGroup(after: .toolbar) {
+                Button("Toggle Sidebar") {
+                    // macOS standard sidebar toggle
+                    NSApp.keyWindow?.firstResponder?.tryToPerform(
+                        #selector(NSSplitViewController.toggleSidebar(_:)),
+                        with: nil
+                    )
+                }
+                .keyboardShortcut("s", modifiers: [.command, .control])
+
+                Button("Toggle Table of Contents") {
+                    NotificationCenter.default.post(name: .leoToggleTOC, object: nil)
+                }
+                .keyboardShortcut("t", modifiers: .command)
+            }
+            // Reading
+            CommandGroup(after: .textEditing) {
+                Button("Toggle Pinyin") {
+                    NotificationCenter.default.post(name: .leoTogglePinyin, object: nil)
+                }
+                .keyboardShortcut("p", modifiers: [.command, .shift])
+
+                Button("Find in Book") {
+                    NotificationCenter.default.post(name: .leoToggleSearch, object: nil)
+                }
+                .keyboardShortcut("f", modifiers: .command)
             }
         }
 

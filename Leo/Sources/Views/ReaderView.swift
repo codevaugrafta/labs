@@ -41,6 +41,11 @@ struct ReaderView: View {
     @State private var tocItems: [TOCItem] = []
     @StateObject private var coordinatorBridge = ReaderCoordinatorBridge()
 
+    // Search state
+    @State private var showSearchBar = false
+    @State private var searchQuery = ""
+    @FocusState private var searchFieldFocused: Bool
+
     /// UI tests: when `LEO_UI_TEST_SHOW_LOOKUP` is set, surface dictionary text for AX (not from WKWebView).
     @State private var uiTestDictionarySummary: String?
     @State private var uiTestLocatorSummary: String?
@@ -164,6 +169,34 @@ struct ReaderView: View {
             .padding(.top, 4)
             .zIndex(10_000)
         }
+        .overlay(alignment: .top) {
+            if showSearchBar && usesFoliateReader {
+                SearchBarView(
+                    query: $searchQuery,
+                    isFocused: $searchFieldFocused,
+                    onSubmit: {
+                        let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if q.isEmpty {
+                            coordinatorBridge.coordinator?.clearBookSearch()
+                        } else {
+                            coordinatorBridge.coordinator?.searchInBook(q)
+                        }
+                    },
+                    onClear: {
+                        searchQuery = ""
+                        coordinatorBridge.coordinator?.clearBookSearch()
+                    },
+                    onDismiss: {
+                        showSearchBar = false
+                        searchQuery = ""
+                        coordinatorBridge.coordinator?.clearBookSearch()
+                    }
+                )
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .zIndex(20_000)
+            }
+        }
+        .animation(.easeInOut(duration: 0.18), value: showSearchBar)
         .toolbar {
             if book.format == .pdf {
                 ToolbarItemGroup(placement: .automatic) {
@@ -365,6 +398,26 @@ struct ReaderView: View {
         .onReceive(NotificationCenter.default.publisher(for: .leoPlayTTS)) { note in
             guard let word = note.object as? String, !word.isEmpty else { return }
             Task { await playWordTTS(word: word) }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .leoToggleTOC)) { _ in
+            guard usesFoliateReader else { return }
+            coordinatorBridge.coordinator?.requestTOC()
+            showTOCPanel.toggle()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .leoTogglePinyin)) { _ in
+            readingShowPinyin.toggle()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .leoToggleSearch)) { _ in
+            guard usesFoliateReader else { return }
+            withAnimation(.easeInOut(duration: 0.18)) {
+                showSearchBar.toggle()
+            }
+            if showSearchBar {
+                searchFieldFocused = true
+            } else {
+                searchQuery = ""
+                coordinatorBridge.coordinator?.clearBookSearch()
+            }
         }
     }
 
@@ -778,5 +831,62 @@ private struct TOCPanelView: View {
         }
         .frame(minWidth: 260, idealWidth: 280, maxWidth: 320, minHeight: 200, idealHeight: 400)
         .accessibilityIdentifier("leo.toc.panel")
+    }
+}
+
+// MARK: - Search Bar
+
+private struct SearchBarView: View {
+    @Binding var query: String
+    var isFocused: FocusState<Bool>.Binding
+    let onSubmit: () -> Void
+    let onClear: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+                .font(.system(size: 13))
+
+            TextField("Search in book…", text: $query)
+                .textFieldStyle(.plain)
+                .font(.system(size: 14))
+                .focused(isFocused)
+                .onSubmit {
+                    onSubmit()
+                }
+                .onKeyPress(.escape) {
+                    onDismiss()
+                    return .handled
+                }
+                .accessibilityIdentifier("leo.search.field")
+
+            if !query.isEmpty {
+                Button(action: onClear) {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                        .font(.system(size: 13))
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Clear search")
+            }
+
+            Button(action: onDismiss) {
+                Text("Done")
+                    .font(.system(size: 13))
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.secondary)
+            .accessibilityLabel("Close search bar")
+            .accessibilityIdentifier("leo.search.close")
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 0))
+        .overlay(alignment: .bottom) {
+            Divider()
+        }
+        .accessibilityIdentifier("leo.search.bar")
     }
 }
