@@ -1,5 +1,13 @@
 # Leo — Implementation Plan
 
+## Branch Governance (2026-03)
+
+- Canonical Leo implementation branch: `leo/v1.0-digital-vellum`
+- Stable fallback checkpoint: `leo/v0.2-consolidation`
+- Integrated Digital Vellum Phase 1 baseline: commit `0a905ff`
+- Start each Leo session with `./Leo/scripts/verify-branch-gate.sh`
+- Workflow source of truth: `Leo/WORKFLOW.md`
+
 ## Actually shipped vs stub (2026-03)
 
 Use this matrix instead of the legacy “all complete” banner below. **Engine** = logic tests pass; **Wired** = user-visible in the `.app`.
