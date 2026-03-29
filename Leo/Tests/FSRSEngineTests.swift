@@ -146,4 +146,83 @@ struct FSRSEngineTests {
         let interval = card.dueDate.timeIntervalSince(Date()) / 86400.0
         #expect(interval >= 0.9) // At least ~1 day (with some time tolerance)
     }
+
+    @Test("Trainable decay affects interval length")
+    @MainActor
+    func trainableDecayAffectsInterval() throws {
+        // A steeper (more negative) decay makes retrievability drop faster,
+        // so the engine should schedule a shorter interval to hit 90% retention.
+        let (engine1, _) = try makeEngine()
+        let (engine2, _) = try makeEngine()
+
+        let cardDefault = engine1.createCard(for: "苹果")
+        let cardSteep   = engine2.createCard(for: "苹果")
+
+        // First review to establish stability
+        engine1.review(card: cardDefault, rating: .good)
+        engine2.review(card: cardSteep, rating: .good)
+
+        // Sanity: both cards should now be in .review state with equal stability
+        // (first-review stability is independent of decay)
+        #expect(cardDefault.state == .review)
+        #expect(cardSteep.state == .review)
+        #expect(abs(cardDefault.stability - cardSteep.stability) < 1e-9)
+
+        // Assign a steeper decay to cardSteep (-0.7 < -0.5 in absolute terms)
+        cardSteep.decay = -0.7
+
+        // Simulate being overdue so a second review triggers nextRecallStability
+        let threeDaysAgo = Date().addingTimeInterval(-86400 * 3)
+        cardDefault.lastReviewDate = threeDaysAgo
+        cardDefault.dueDate = Date().addingTimeInterval(-86400)
+        cardSteep.lastReviewDate = threeDaysAgo
+        cardSteep.dueDate = Date().addingTimeInterval(-86400)
+
+        engine1.review(card: cardDefault, rating: .good)
+        engine2.review(card: cardSteep,   rating: .good)
+
+        // With a steeper decay the interval to reach 90% retention is shorter
+        let intervalDefault = cardDefault.dueDate.timeIntervalSinceNow
+        let intervalSteep   = cardSteep.dueDate.timeIntervalSinceNow
+        #expect(intervalSteep < intervalDefault,
+                "Steeper decay should produce a shorter next interval")
+    }
+
+    @Test("Same-day review uses short-term formula")
+    @MainActor
+    func sameDayReviewUsesShortTermFormula() throws {
+        // A review performed seconds after the last review is same-day.
+        // The same-day formula multiplies by S^(-w19); with w19 = 0 this equals
+        // the exponential factor alone, so stability differs from long-term recall.
+        let (engineSameDay, _) = try makeEngine()
+        let (engineLongTerm, _) = try makeEngine()
+
+        let cardSameDay  = engineSameDay.createCard(for:  "香蕉")
+        let cardLongTerm = engineLongTerm.createCard(for: "香蕉")
+
+        // First review to set initial state
+        engineSameDay.review(card: cardSameDay, rating: .good)
+        engineLongTerm.review(card: cardLongTerm, rating: .good)
+
+        #expect(abs(cardSameDay.stability - cardLongTerm.stability) < 1e-9,
+                "Stability should be equal after first review")
+
+        // For long-term: simulate review 5 days later
+        cardLongTerm.lastReviewDate = Date().addingTimeInterval(-86400 * 5)
+        cardLongTerm.dueDate = Date().addingTimeInterval(-86400)
+
+        // For same-day: lastReviewDate is just now (seconds ago) — default after review()
+        // Both get a Good rating on the second review
+        engineSameDay.review(card:  cardSameDay,  rating: .good)
+        engineLongTerm.review(card: cardLongTerm, rating: .good)
+
+        // The two paths produce different stability values
+        #expect(cardSameDay.stability != cardLongTerm.stability,
+                "Same-day and long-term review paths should produce different stability")
+
+        // Same-day stability should still be positive and reasonable
+        #expect(cardSameDay.stability > 0)
+        #expect(cardLongTerm.stability > cardSameDay.stability,
+                "Long-term recall raises stability more than same-day review")
+    }
 }

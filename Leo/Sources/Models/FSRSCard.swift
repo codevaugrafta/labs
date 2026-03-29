@@ -13,6 +13,8 @@ final class FSRSCard {
     var lapseCount: Int
     var state: CardState
     var createdAt: Date
+    /// Per-card trainable decay (FSRS v6 w[20]). Nil means use global param default.
+    var decay: Double?
 
     init(word: String) {
         self.id = UUID()
@@ -25,6 +27,7 @@ final class FSRSCard {
         self.lapseCount = 0
         self.state = .new
         self.createdAt = Date()
+        self.decay = nil
     }
 }
 
