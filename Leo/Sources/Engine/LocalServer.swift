@@ -4,6 +4,28 @@ import Swifter
 /// Embedded localhost HTTP server for serving web content to WKWebView.
 /// Solves: Web Crypto secure context, ES6 module CORS, WKWebView sandbox issues.
 final class LocalServer: @unchecked Sendable {
+    struct StartResult: Equatable {
+        let port: UInt16
+        let readerURL: URL
+    }
+
+    enum LocalServerError: LocalizedError {
+        case missingReaderBundle(String)
+        case failedToBind(String)
+        case invalidAssignedPort
+
+        var errorDescription: String? {
+            switch self {
+            case .missingReaderBundle(let path):
+                "Leo couldn’t load reader resources from \(path). Rebuild the app bundle and try again."
+            case .failedToBind(let details):
+                "Leo couldn’t start its embedded reader server: \(details)"
+            case .invalidAssignedPort:
+                "Leo’s embedded reader server started without a usable loopback port."
+            }
+        }
+    }
+
     static let shared = LocalServer()
 
     private var server: HttpServer?
@@ -13,8 +35,20 @@ final class LocalServer: @unchecked Sendable {
 
     private init() {}
 
-    func start(webResourcesPath: String) {
-        guard server == nil else { return }
+    @discardableResult
+    func start(webResourcesPath: String, forceRestart: Bool = false) throws -> StartResult {
+        if forceRestart {
+            stop()
+        }
+
+        if let readerURL, server != nil {
+            return StartResult(port: port, readerURL: readerURL)
+        }
+
+        guard FileManager.default.fileExists(atPath: webResourcesPath + "/reader.html") else {
+            throw LocalServerError.missingReaderBundle(webResourcesPath)
+        }
+
         webRoot = webResourcesPath
 
         let httpServer = HttpServer()
@@ -22,7 +56,8 @@ final class LocalServer: @unchecked Sendable {
         httpServer.listenAddressIPv4 = "127.0.0.1"
 
         // Catch-all: serve web resources for any path starting with /web/
-        httpServer.notFoundHandler = { request in
+        httpServer.notFoundHandler = { [weak self] request in
+            guard let self else { return HttpResponse.notFound }
             let path = request.path
 
             // Handle /web/ paths — serve files from the web resources directory
@@ -51,41 +86,50 @@ final class LocalServer: @unchecked Sendable {
                 default: mimeType = "application/octet-stream"
                 }
 
-                return HttpResponse.raw(200, "OK", responseHeaders(contentType: mimeType)) { writer in
+                return HttpResponse.raw(200, "OK", self.responseHeaders(contentType: mimeType)) { writer in
                     try writer.write(data)
                 }
             }
 
-            return .notFound
+            return HttpResponse.notFound
         }
 
         // Book files by ID
         httpServer["/book/:id"] = { [weak self] request in
-            guard let bookId = request.params[":id"],
-                  let filePath = self?.bookPaths[bookId],
+            guard let self,
+                  let bookId = request.params[":id"],
+                  let filePath = self.bookPaths[bookId],
                   let data = try? Data(contentsOf: URL(fileURLWithPath: filePath)) else {
                 return .notFound
             }
             let ext = (filePath as NSString).pathExtension.lowercased()
             let mimeType = ext == "epub" ? "application/epub+zip" : "application/pdf"
-            return HttpResponse.raw(200, "OK", responseHeaders(contentType: mimeType)) { writer in
+            return HttpResponse.raw(200, "OK", self.responseHeaders(contentType: mimeType)) { writer in
                 try writer.write(data)
             }
         }
 
-        // Start on available port
-        for tryPort: UInt16 in 8700...8750 {
-            do {
-                try httpServer.start(tryPort, forceIPv4: true, priority: .userInitiated)
-                server = httpServer
-                port = tryPort
-                NSLog("[Leo Server] Started on http://127.0.0.1:\(port)")
-                return
-            } catch {
-                continue
+        do {
+            try httpServer.start(0, forceIPv4: true, priority: .userInitiated)
+            let assignedPort = try httpServer.port()
+            guard assignedPort > 0, let port = UInt16(exactly: assignedPort) else {
+                httpServer.stop()
+                throw LocalServerError.invalidAssignedPort
             }
+
+            server = httpServer
+            self.port = port
+            NSLog("[Leo Server] Started on http://127.0.0.1:\(port)")
+            guard let readerURL else {
+                throw LocalServerError.invalidAssignedPort
+            }
+            return StartResult(port: port, readerURL: readerURL)
+        } catch let error as LocalServerError {
+            throw error
+        } catch {
+            httpServer.stop()
+            throw LocalServerError.failedToBind(error.localizedDescription)
         }
-        NSLog("[Leo Server] ERROR: Could not find available port")
     }
 
     func registerBook(id: String, filePath: String) {
@@ -105,6 +149,7 @@ final class LocalServer: @unchecked Sendable {
     func stop() {
         server?.stop()
         server = nil
+        port = 0
         NSLog("[Leo Server] Stopped")
     }
 

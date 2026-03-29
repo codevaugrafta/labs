@@ -1,10 +1,26 @@
 # Leo — Implementation Plan
 
-## Status: v0.1.0 — All 11 phases COMPLETE
-- 20 Swift source files, 2,600+ LOC
-- 6 test files, 52 tests passing
-- 11 deep modules built and wired
-- App builds and runs on macOS 15
+## Actually shipped vs stub (2026-03)
+
+Use this matrix instead of the legacy “all complete” banner below. **Engine** = logic tests pass; **Wired** = user-visible in the `.app`.
+
+| Phase area | Engine | Wired in UI |
+|------------|--------|-------------|
+| EPUB reader (Foliate-js + local server) | Yes | Yes |
+| PDF reader | PDFKit display + on-device reflow → EPUB | PDF view-only; **Convert to EPUB for Reading** (sidebar menu) runs `PDFConverter` → Foliate path |
+| Dictionary + popup | Yes | Yes (HTML popup + familiarity row) |
+| Familiarity / FSRS | Yes | Yes (SRS actions, Review sheet) |
+| Frequency | Yes | Yes (popup badge) |
+| OpenRouter contextual gloss | Yes | Yes (async line in popup when API key set) |
+| InWorld TTS + word timestamps | Yes | Yes (Read aloud toolbar; settings keys) |
+| Anki import / export | Yes | Yes (File menu + Settings → Anki; export TSV) |
+| Expressions parser | Yes | Partially (parser tests; not full reader overlay) |
+| Reading sessions | Yes | Yes (toolbar timer) |
+| Menu bar / sync / dictation / Readium | — | No (PRD items; Foliate replaces Readium) |
+
+## Status: v0.2.0 — core reading loop + integration pass
+- Swift engine modules + Foliate EPUB bridge; see matrix above for gaps.
+- 6+ test files; run `swift test` in `Leo/`.
 
 ## Tracer Bullet Phases
 

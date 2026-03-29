@@ -104,6 +104,17 @@ final class FamiliarityTracker {
         trySave()
     }
 
+    /// Apply bulk word states (e.g. Anki import). Promotes each word to the higher of current vs imported.
+    func applyImportedStates(_ pairs: [(word: String, state: FamiliarityState)]) {
+        for pair in pairs {
+            let entry = fetchOrCreateEntry(for: pair.word)
+            if pair.state.rawValue > entry.state.rawValue {
+                entry.state = pair.state
+            }
+        }
+        trySave()
+    }
+
     /// Explicit user reset — the ONLY way a state moves backward.
     func resetState(_ word: String, to newState: FamiliarityState) {
         guard let entry = fetchEntry(for: word) else { return }

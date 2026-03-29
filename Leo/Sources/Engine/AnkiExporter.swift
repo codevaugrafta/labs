@@ -126,13 +126,19 @@ struct AnkiExporter: Sendable {
         process.arguments = [dbPath, query]
 
         let pipe = Pipe()
+        let errPipe = Pipe()
         process.standardOutput = pipe
-        process.standardError = Pipe()
+        process.standardError = errPipe
 
         try process.run()
         process.waitUntilExit()
 
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+        if process.terminationStatus != 0 {
+            let errText = String(data: errData, encoding: .utf8) ?? ""
+            throw AnkiError.invalidFormat("sqlite3 failed: \(errText.prefix(300))")
+        }
         return String(data: data, encoding: .utf8) ?? ""
     }
 

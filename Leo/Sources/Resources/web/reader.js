@@ -35,86 +35,171 @@ view.addEventListener('load', e => {
 })
 
 view.addEventListener('relocate', e => {
-    const { fraction, tocItem, cfi } = e.detail
+    const { fraction, tocItem, cfi: emittedCFI, range, index } = e.detail
+    let cfi = emittedCFI ?? ''
+    if (!cfi) {
+        try {
+            cfi = view.getCFI?.(index, range) ?? view.lastLocation?.cfi ?? ''
+        } catch (err) {
+            console.warn('[Leo Reader] Failed to derive CFI during relocate:', err)
+            cfi = view.lastLocation?.cfi ?? ''
+        }
+    }
     postToSwift('relocate', {
         fraction: fraction,
-        cfi: cfi?.toString() ?? '',
+        cfi: cfi?.toString?.() ?? String(cfi ?? ''),
         chapterTitle: tocItem?.label ?? ''
     })
 })
 
 view.addEventListener('draw-annotation', e => {
-    // Future: familiarity color overlays
+    // Calibre / foliate annotations: always allowed. Leo familiarity overlays (future)
+    // should check window.__leoShowHighlights before drawing.
+    if (window.__leoShowHighlights === false) {
+        return
+    }
 })
 
-// --- COMMANDS FROM SWIFT → JS ---
+// --- Reader chrome (theme + typography) — merged Swift → foliate setStyles ---
 
-// Called by Swift to open an EPUB.
-// Flow: fetch → open (book metadata) → renderer.next() (triggers first 'load' event)
-window.openBook = async function(url) {
-    try {
-        loadingEl.style.display = 'flex'
-        errorEl.style.display = 'none'
+window._leoLastTheme = { bg: '#FFFFFF', fg: '#1A1A1A' }
+window._leoLastPrefs = {
+    fontSizePt: 18,
+    lineHeight: 1.8,
+    textDirection: 'horizontal',
+    showPinyin: false,
+    showHighlights: true,
+}
+window.__leoShowHighlights = true
+window.__leoShowPinyin = false
 
-        const response = await fetch(url)
-        if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
-        const blob = await response.blob()
-        const file = new File([blob], url.split('/').pop(), { type: 'application/epub+zip' })
+const LEO_FONT_STACK = '"PingFang SC", "Hiragino Sans GB", "Source Han Serif SC", "Noto Serif SC", sans-serif'
 
-        // open() sets up book data and creates the renderer — it does NOT navigate.
-        await view.open(file)
+function buildLeoReaderBodyCSS() {
+    const t = window._leoLastTheme
+    const p = window._leoLastPrefs
+    const vertical = p.textDirection === 'vertical'
+    const writingMode = vertical ? 'vertical-rl' : 'horizontal-tb'
 
-        postToSwift('loaded', {
-            title: view.book?.metadata?.title ?? '',
-            author: view.book?.metadata?.creator ?? '',
-            chapterCount: view.book?.toc?.length ?? 0
-        })
-
-        // Apply default styles before navigating so they take effect on first render.
-        view.renderer?.setStyles?.(`
+    return `
             body {
-                font-family: "PingFang SC", "Hiragino Sans GB", "Source Han Serif SC",
-                             "Noto Serif SC", sans-serif;
-                font-size: 18px;
-                line-height: 1.7;
-                max-width: 35em;
+                background: ${t.bg} !important;
+                color: ${t.fg} !important;
+                font-family: ${LEO_FONT_STACK};
+                font-size: ${p.fontSizePt}px;
+                line-height: ${p.lineHeight};
+                writing-mode: ${writingMode};
+                text-orientation: mixed;
+                max-width: ${vertical ? 'none' : '35em'};
                 margin: 0 auto;
                 padding: 2em 3em;
-                text-indent: 2em;
+                text-indent: ${vertical ? '0' : '2em'};
                 text-align: justify;
                 text-justify: inter-character;
                 line-break: strict;
             }
             p { margin-bottom: 1em; }
             h1, h2, h3 { text-indent: 0; text-align: center; margin-top: 2em; }
-        `)
+        `
+}
 
-        // Disable foliate-js's built-in touch-swipe page navigation.
-        // The paginator's prev()/next() are public methods. We intercept them here
-        // so that trackpad swipes / touch gestures on the left/right margin areas
-        // no longer turn pages. Explicit navigation (keyboard, Swift buttons) still
-        // works because window.nextPage / window.prevPage call our saved references.
-        const _rendererNext = view.renderer.next.bind(view.renderer)
-        const _rendererPrev = view.renderer.prev.bind(view.renderer)
-        view.renderer.next = () => {}
-        view.renderer.prev = () => {}
-
-        // Also disable the view-level wrappers so goLeft/goRight do nothing.
-        view.next = () => {}
-        view.prev = () => {}
-
-        // Expose explicit navigation for keyboard and Swift buttons.
-        window._rendererNext = _rendererNext
-        window._rendererPrev = _rendererPrev
-
-        // Navigate to the first page — this triggers the first 'load' event.
-        _rendererNext()
-    } catch (err) {
-        loadingEl.style.display = 'none'
-        errorEl.textContent = `Error: ${err.message}`
-        errorEl.style.display = 'block'
-        postToSwift('error', { message: err.message, source: 'openBook' })
+function pushLeoReaderStyles() {
+    if (view.renderer?.setStyles) {
+        view.renderer.setStyles(buildLeoReaderBodyCSS())
     }
+}
+
+/**
+ * @param {object} p — fontSizePt, lineHeight, textDirection, showPinyin, showHighlights
+ */
+window.applyReadingPreferences = function (p) {
+    if (typeof p.fontSizePt === 'number' && p.fontSizePt > 0) {
+        window._leoLastPrefs.fontSizePt = p.fontSizePt
+    }
+    if (typeof p.lineHeight === 'number' && p.lineHeight > 0) {
+        window._leoLastPrefs.lineHeight = p.lineHeight
+    }
+    if (typeof p.textDirection === 'string') {
+        window._leoLastPrefs.textDirection = p.textDirection
+    }
+    if (typeof p.showPinyin === 'boolean') {
+        window._leoLastPrefs.showPinyin = p.showPinyin
+        window.__leoShowPinyin = p.showPinyin
+    }
+    if (typeof p.showHighlights === 'boolean') {
+        window._leoLastPrefs.showHighlights = p.showHighlights
+        window.__leoShowHighlights = p.showHighlights
+    }
+    pushLeoReaderStyles()
+}
+
+// --- COMMANDS FROM SWIFT → JS ---
+
+// Called by Swift to open an EPUB.
+// Flow: fetch → open (book metadata) → renderer.next() (triggers first 'load' event)
+window.openBook = function(request) {
+    void (async () => {
+        try {
+            loadingEl.style.display = 'flex'
+            errorEl.style.display = 'none'
+
+            const url = typeof request === 'string' ? request : request?.url
+            const locator = typeof request === 'string' ? '' : (request?.locator ?? '')
+            if (!url) throw new Error('Missing book URL')
+
+            const response = await fetch(url)
+            if (!response.ok) throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+            const blob = await response.blob()
+            const file = new File([blob], url.split('/').pop(), { type: 'application/epub+zip' })
+
+            // open() sets up book data and creates the renderer — it does NOT navigate.
+            await view.open(file)
+
+            postToSwift('loaded', {
+                title: view.book?.metadata?.title ?? '',
+                author: view.book?.metadata?.creator ?? '',
+                chapterCount: view.book?.toc?.length ?? 0
+            })
+
+            // Typography + theme: Swift calls applyReadingPreferences + setTheme before openBook;
+            // this applies defaults if load order ever differs.
+            pushLeoReaderStyles()
+
+            const _rendererNext = view.renderer.next.bind(view.renderer)
+            const _rendererPrev = view.renderer.prev.bind(view.renderer)
+
+            try {
+                await view.init({
+                    lastLocation: locator || null,
+                    showTextStart: !locator
+                })
+            } catch (restoreErr) {
+                console.warn('[Leo Reader] Failed to initialize reader at the requested locator:', restoreErr)
+                await view.init({ showTextStart: true })
+            }
+
+            // Disable foliate-js's built-in touch-swipe page navigation.
+            // The paginator's prev()/next() are public methods. We intercept them here
+            // so that trackpad swipes / touch gestures on the left/right margin areas
+            // no longer turn pages. Explicit navigation (keyboard, Swift buttons) still
+            // works because window.nextPage / window.prevPage call our saved references.
+            view.renderer.next = () => {}
+            view.renderer.prev = () => {}
+
+            // Also disable the view-level wrappers so goLeft/goRight do nothing.
+            view.next = () => {}
+            view.prev = () => {}
+
+            // Expose explicit navigation for keyboard and Swift buttons.
+            window._rendererNext = _rendererNext
+            window._rendererPrev = _rendererPrev
+        } catch (err) {
+            loadingEl.style.display = 'none'
+            errorEl.textContent = `Error: ${err.message}`
+            errorEl.style.display = 'block'
+            postToSwift('error', { message: err.message, source: 'openBook' })
+        }
+    })()
 }
 
 // Navigate to a specific CFI position
@@ -126,33 +211,15 @@ window.goTo = function(cfi) {
     }
 }
 
-// Apply theme — setStyles() takes a plain CSS string, not an object.
-window.setTheme = function(theme) {
-    const { bg, fg, fontFamily, fontSize, lineHeight } = theme
+// Apply light/dark/sepia colors; typography comes from applyReadingPreferences.
+window.setTheme = function(themeP) {
+    const bg = themeP.bg ?? window._leoLastTheme.bg
+    const fg = themeP.fg ?? window._leoLastTheme.fg
+    window._leoLastTheme = { bg, fg }
     document.documentElement.style.setProperty('--bg', bg)
     document.documentElement.style.setProperty('--fg', fg)
     document.body.style.background = bg
-
-    if (view.renderer) {
-        view.renderer.setStyles(`
-            body {
-                background: ${bg} !important;
-                color: ${fg} !important;
-                font-family: ${fontFamily || '"PingFang SC", "Hiragino Sans GB", "Source Han Serif SC", "Noto Serif SC", sans-serif'};
-                font-size: ${fontSize || '18px'};
-                line-height: ${lineHeight || '1.7'};
-                max-width: 35em;
-                margin: 0 auto;
-                padding: 2em 3em;
-                text-indent: 2em;
-                text-align: justify;
-                text-justify: inter-character;
-                line-break: strict;
-            }
-            p { margin-bottom: 1em; }
-            h1, h2, h3 { text-indent: 0; text-align: center; margin-top: 2em; }
-        `)
-    }
+    pushLeoReaderStyles()
 }
 
 // --- PAGE NAVIGATION ---
@@ -161,6 +228,14 @@ window.setTheme = function(theme) {
 
 // Keyboard navigation — use saved references so stubs don't block us
 document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+        if (_activePopup) {
+            e.preventDefault()
+            hidePopup()
+            postToSwift('popupAction', { action: 'dismiss', word: '' })
+        }
+        return
+    }
     if (!view.renderer) return
     switch (e.key) {
         case 'ArrowRight':
@@ -339,6 +414,9 @@ window.showPopup = function(x, y, data) {
     if (top + POP_APPROX_HEIGHT > vh - MARGIN) top = y - POP_APPROX_HEIGHT - 10
     top = Math.max(MARGIN, top)
 
+    const canMarkKnown = data.canMarkKnown !== false
+    const alreadyInReview = data.alreadyInReview === true
+
     // Root card
     const popup = document.createElement('div')
     popup.id = 'leo-popup'
@@ -359,7 +437,7 @@ window.showPopup = function(x, y, data) {
 
     const wordGroup = document.createElement('div')
     Object.assign(wordGroup.style, { display: 'flex', alignItems: 'baseline',
-        flexWrap: 'wrap', gap: '0' })
+        flexWrap: 'wrap', gap: '0', flex: '1' })
 
     const wordEl = document.createElement('span')
     wordEl.textContent = data.word ?? ''
@@ -410,18 +488,49 @@ window.showPopup = function(x, y, data) {
     header.appendChild(closeBtn)
     popup.appendChild(header)
 
-    // --- Familiarity sub-header ---
+    const metaRow = document.createElement('div')
+    Object.assign(metaRow.style, {
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: '6px',
+        marginBottom: '10px',
+    })
+
     if (data.familiarityLabel) {
-        const famRow = document.createElement('div')
-        famRow.textContent = data.familiarityLabel
-        Object.assign(famRow.style, {
-            fontSize: '11px', color: 'rgba(242,242,247,0.45)', marginBottom: '8px',
+        const famChip = document.createElement('span')
+        famChip.textContent = `Familiarity: ${data.familiarityLabel}`
+        Object.assign(famChip.style, {
+            fontSize: '11px',
+            color: 'rgba(242,242,247,0.65)',
+            background: 'rgba(255,255,255,0.06)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: '999px',
+            padding: '3px 8px',
         })
-        popup.appendChild(famRow)
+        metaRow.appendChild(famChip)
+    }
+
+    if (data.frequencyTier) {
+        const freqChip = document.createElement('span')
+        freqChip.textContent = `Frequency: ${data.frequencyTier}`
+        Object.assign(freqChip.style, {
+            fontSize: '11px',
+            color: 'rgba(242,242,247,0.65)',
+            background: 'rgba(255,255,255,0.06)',
+            border: '1px solid rgba(255,255,255,0.08)',
+            borderRadius: '999px',
+            padding: '3px 8px',
+        })
+        metaRow.appendChild(freqChip)
+    }
+
+    if (metaRow.childElementCount > 0) {
+        popup.appendChild(metaRow)
     }
 
     // --- Definitions ---
     const defsSection = document.createElement('div')
+    defsSection.id = 'leo-defs'
     Object.assign(defsSection.style, {
         borderTop: '1px solid rgba(255,255,255,.1)',
         paddingTop: '8px', marginBottom: '10px', fontSize: '13.5px',
@@ -430,9 +539,9 @@ window.showPopup = function(x, y, data) {
     const defs = (data.definitions ?? []).slice(0, 4)
     if (defs.length === 0) {
         const empty = document.createElement('p')
-        empty.textContent = 'No definition found'
+        empty.textContent = 'No dictionary entry yet. Leo can still track this word while you keep reading.'
         Object.assign(empty.style, { color: 'rgba(242,242,247,0.45)',
-            fontStyle: 'italic', margin: '0' })
+            margin: '0' })
         defsSection.appendChild(empty)
     } else {
         defs.forEach((def, i) => {
@@ -464,25 +573,47 @@ window.showPopup = function(x, y, data) {
         borderTop: '1px solid rgba(255,255,255,.1)', paddingTop: '10px',
     })
 
-    const knowBtn = document.createElement('button')
-    knowBtn.textContent = 'I know this'
-    Object.assign(knowBtn.style, {
-        flex: '1', padding: '6px 0', borderRadius: '8px', border: 'none',
-        cursor: 'pointer', background: 'rgba(52,199,89,0.18)',
-        color: '#34C759', fontSize: '12px', fontWeight: '600',
-    })
+    let knowBtn = null
+    if (canMarkKnown) {
+        knowBtn = document.createElement('button')
+        knowBtn.textContent = 'I know this'
+        Object.assign(knowBtn.style, {
+            flex: '1', padding: '7px 0', borderRadius: '8px', border: 'none',
+            cursor: 'pointer', background: 'rgba(52,199,89,0.18)',
+            color: '#34C759', fontSize: '12px', fontWeight: '600',
+        })
+        actions.appendChild(knowBtn)
+    }
 
-    const srsBtn = document.createElement('button')
-    srsBtn.textContent = 'Add to review'
-    Object.assign(srsBtn.style, {
-        flex: '1', padding: '6px 0', borderRadius: '8px', border: 'none',
-        cursor: 'pointer', background: 'rgba(10,132,255,0.18)',
-        color: '#0A84FF', fontSize: '12px', fontWeight: '600',
-    })
+    let srsBtn = null
+    if (!alreadyInReview) {
+        srsBtn = document.createElement('button')
+        srsBtn.textContent = 'Add to review'
+        Object.assign(srsBtn.style, {
+            flex: '1', padding: '7px 0', borderRadius: '8px', border: 'none',
+            cursor: 'pointer', background: 'rgba(10,132,255,0.18)',
+            color: '#0A84FF', fontSize: '12px', fontWeight: '600',
+        })
+        actions.appendChild(srsBtn)
+    } else {
+        const status = document.createElement('div')
+        status.textContent = 'Already in review'
+        Object.assign(status.style, {
+            flex: '1',
+            padding: '7px 10px',
+            borderRadius: '8px',
+            background: 'rgba(10,132,255,0.10)',
+            color: 'rgba(200,220,255,0.92)',
+            fontSize: '12px',
+            fontWeight: '600',
+            textAlign: 'center',
+        })
+        actions.appendChild(status)
+    }
 
-    actions.appendChild(knowBtn)
-    actions.appendChild(srsBtn)
-    popup.appendChild(actions)
+    if (actions.childElementCount > 0) {
+        popup.appendChild(actions)
+    }
 
     document.body.appendChild(popup)
     _activePopup = popup
@@ -493,15 +624,19 @@ window.showPopup = function(x, y, data) {
         hidePopup()
         postToSwift('popupAction', { action: 'dismiss', word: data.word })
     }
-    knowBtn.onclick = (e) => {
-        e.stopPropagation()
-        hidePopup()
-        postToSwift('popupAction', { action: 'markKnown', word: data.word })
+    if (knowBtn) {
+        knowBtn.onclick = (e) => {
+            e.stopPropagation()
+            hidePopup()
+            postToSwift('popupAction', { action: 'markKnown', word: data.word })
+        }
     }
-    srsBtn.onclick = (e) => {
-        e.stopPropagation()
-        hidePopup()
-        postToSwift('popupAction', { action: 'addToSRS', word: data.word })
+    if (srsBtn) {
+        srsBtn.onclick = (e) => {
+            e.stopPropagation()
+            hidePopup()
+            postToSwift('popupAction', { action: 'addToSRS', word: data.word })
+        }
     }
 
     // Dismiss on outside click (small delay so the current tap doesn't immediately close it)
@@ -516,6 +651,48 @@ window.showPopup = function(x, y, data) {
 }
 
 window.hidePopup = function() { hidePopup() }
+
+// Contextual gloss from OpenRouter (async; Swift calls after initial popup).
+window.updatePopupContext = function(text) {
+    if (!text) return
+    const popup = document.getElementById('leo-popup')
+    if (!popup) return
+    let el = document.getElementById('leo-context')
+    if (!el) {
+        el = document.createElement('div')
+        el.id = 'leo-context'
+        Object.assign(el.style, {
+            borderTop: '1px solid rgba(255,255,255,.08)',
+            paddingTop: '8px', marginBottom: '8px', fontSize: '12.5px',
+            color: 'rgba(200,220,255,0.95)', lineHeight: '1.35',
+        })
+        const label = document.createElement('div')
+        label.textContent = 'Context'
+        Object.assign(label.style, {
+            fontSize: '10px',
+            fontWeight: '700',
+            letterSpacing: '0.06em',
+            textTransform: 'uppercase',
+            color: 'rgba(200,220,255,0.55)',
+            marginBottom: '4px',
+        })
+        el.appendChild(label)
+
+        const body = document.createElement('div')
+        body.id = 'leo-context-body'
+        el.appendChild(body)
+        const defs = document.getElementById('leo-defs')
+        if (defs) {
+            defs.insertAdjacentElement('afterend', el)
+        } else {
+            popup.appendChild(el)
+        }
+    }
+    const body = document.getElementById('leo-context-body')
+    if (body) {
+        body.textContent = text
+    }
+}
 
 function hidePopup() {
     if (_activePopup) {

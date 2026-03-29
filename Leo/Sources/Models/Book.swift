@@ -1,6 +1,12 @@
 import Foundation
 import SwiftData
 
+struct BookLocator: Codable, Equatable {
+    let cfi: String
+    let fraction: Double
+    let updatedAt: Date
+}
+
 @Model
 final class Book {
     var id: UUID
@@ -11,6 +17,8 @@ final class Book {
     var lastLocator: Data?
     var addedAt: Date
     var lastOpenedAt: Date?
+    /// When set, this book was reflow-converted from a PDF at this path; `filePath` then points to the derived EPUB.
+    var originalPDFPath: String?
 
     init(
         title: String,
@@ -26,10 +34,23 @@ final class Book {
         self.lastLocator = nil
         self.addedAt = Date()
         self.lastOpenedAt = nil
+        self.originalPDFPath = nil
     }
 }
 
 enum BookFormat: String, Codable {
     case epub
     case pdf
+}
+
+extension Book {
+    var locator: BookLocator? {
+        get {
+            guard let lastLocator else { return nil }
+            return try? JSONDecoder().decode(BookLocator.self, from: lastLocator)
+        }
+        set {
+            lastLocator = try? newValue.map { try JSONEncoder().encode($0) }
+        }
+    }
 }
