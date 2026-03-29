@@ -10,7 +10,12 @@ struct VocabularyView: View {
     private var filteredVocab: [VocabularyEntry] {
         var result = allVocab
         if let filter {
-            result = result.filter { $0.state == filter }
+            result = result.filter {
+                if filter == .learning {
+                    return $0.state == .learning || $0.state == .familiar
+                }
+                return $0.state == filter
+            }
         }
         if !searchText.isEmpty {
             result = result.filter {
@@ -24,14 +29,26 @@ struct VocabularyView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Filter bar
-            HStack(spacing: 8) {
-                filterButton(nil, label: "All", count: allVocab.count)
-                filterButton(.known, label: "Known", count: allVocab.filter { $0.state == .known }.count)
-                filterButton(.learning, label: "Learning", count: allVocab.filter { $0.state == .learning || $0.state == .familiar }.count)
-                filterButton(.seen, label: "Tapped", count: allVocab.filter { $0.state == .seen }.count)
-                filterButton(.unknown, label: "New", count: allVocab.filter { $0.state == .unknown }.count)
-                Spacer()
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Vocabulary")
+                            .font(.headline)
+                        Text("\(filteredVocab.count) of \(allVocab.count) words · sorted by recent activity")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                }
+
+                HStack(spacing: 8) {
+                    filterButton(nil, label: "All words", count: allVocab.count)
+                    filterButton(.known, label: "Known", count: allVocab.filter { $0.state == .known }.count)
+                    filterButton(.learning, label: "Studying", count: allVocab.filter { $0.state == .learning || $0.state == .familiar }.count)
+                    filterButton(.seen, label: "Seen", count: allVocab.filter { $0.state == .seen }.count)
+                    filterButton(.unknown, label: "New", count: allVocab.filter { $0.state == .unknown }.count)
+                    Spacer()
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -48,7 +65,7 @@ struct VocabularyView: View {
                     Text("No vocabulary yet")
                         .font(.headline)
                         .foregroundStyle(.secondary)
-                    Text("Tap words while reading to build your vocabulary.")
+                    Text("Words you tap while reading will land here for quick cleanup and review.")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
@@ -60,6 +77,7 @@ struct VocabularyView: View {
                 .listStyle(.plain)
             }
         }
+        .accessibilityIdentifier("leo.vocabulary.root")
         .searchable(text: $searchText, prompt: "Search vocabulary")
         .frame(minWidth: 400, minHeight: 300)
     }
@@ -70,19 +88,19 @@ struct VocabularyView: View {
                 Text(label)
                     .font(.caption)
                 Text("\(count)")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .font(.caption2.monospacedDigit())
+                    .foregroundStyle(filter == state ? .primary : .secondary)
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(filter == state ? Color.accentColor.opacity(0.15) : Color.clear)
-            .clipShape(Capsule())
+            .background(filter == state ? Color.accentColor.opacity(0.15) : Color.clear, in: Capsule())
         }
         .buttonStyle(.plain)
     }
 }
 
 struct VocabularyRow: View {
+    @Environment(\.modelContext) private var modelContext
     let entry: VocabularyEntry
 
     var body: some View {
@@ -113,13 +131,24 @@ struct VocabularyRow: View {
 
             // Encounter count
             VStack(alignment: .trailing, spacing: 2) {
-                Text("\(entry.encounterCount)x")
+                Text("\(entry.encounterCount)x seen")
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
-                Text(entry.state.label)
+                Text(relativeLastSeen)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
+
+            Menu {
+                Button("Mark as known") { updateState(.known) }
+                Button("Set learning") { updateState(.learning) }
+                Button("Set seen") { updateState(.seen) }
+                Button("Reset to new") { updateState(.unknown) }
+            } label: {
+                Image(systemName: "slider.horizontal.3")
+                    .foregroundStyle(.secondary)
+            }
+            .menuStyle(.borderlessButton)
         }
         .padding(.vertical, 2)
     }
@@ -132,5 +161,15 @@ struct VocabularyRow: View {
         case .familiar: .gray
         case .known: .green
         }
+    }
+
+    private var relativeLastSeen: String {
+        RelativeDateTimeFormatter().localizedString(for: entry.lastSeenAt, relativeTo: Date())
+    }
+
+    private func updateState(_ state: FamiliarityState) {
+        entry.state = state
+        entry.manuallyMarkedAt = state == .known ? Date() : nil
+        try? modelContext.save()
     }
 }

@@ -5,9 +5,10 @@ import SwiftData
 struct ReviewView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var dueCards: [FSRSCard] = []
-    @State private var currentIndex = 0
     @State private var showAnswer = false
     @State private var sessionComplete = false
+    @State private var reviewedCount = 0
+    @State private var sessionTargetCount = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -17,6 +18,7 @@ struct ReviewView: View {
                 cardView
             }
         }
+        .accessibilityIdentifier("leo.review.root")
         .frame(minWidth: 500, minHeight: 400)
         .task {
             loadDueCards()
@@ -26,20 +28,40 @@ struct ReviewView: View {
     // MARK: - Card View
 
     private var cardView: some View {
-        let card = dueCards[currentIndex]
+        let card = dueCards[0]
         let entries = DictionaryEngine.shared.lookup(card.word)
         let freq = FrequencyEngine.shared.lookup(card.word)
+        let remainingCount = dueCards.count
+        let progressTotal = max(sessionTargetCount, 1)
 
         return VStack(spacing: 24) {
-            // Progress
-            HStack {
-                Text("\(currentIndex + 1) / \(dueCards.count)")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text("Reviews: \(card.reviewCount) | Lapses: \(card.lapseCount)")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Review Session")
+                            .font(.headline)
+                        Text("\(remainingCount) due now")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Text("\(reviewedCount) reviewed")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+
+                ProgressView(value: Double(reviewedCount), total: Double(progressTotal))
+                    .accessibilityIdentifier("leo.review.progress")
+
+                HStack {
+                    Text("Card \(reviewedCount + 1) of \(sessionTargetCount)")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Spacer()
+                    Text("Reviews \(card.reviewCount) · Lapses \(card.lapseCount)")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
             }
             .padding(.horizontal)
 
@@ -58,13 +80,18 @@ struct ReviewView: View {
                 }
 
                 // Frequency
-                Text(freq.tier.rawValue)
-                    .font(.caption)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(Color(hex: freq.tier.color).opacity(0.2))
-                    .foregroundStyle(Color(hex: freq.tier.color))
-                    .clipShape(Capsule())
+                HStack(spacing: 8) {
+                    Text("Frequency")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(freq.tier.rawValue)
+                        .font(.caption)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color(hex: freq.tier.color).opacity(0.2))
+                        .foregroundStyle(Color(hex: freq.tier.color))
+                        .clipShape(Capsule())
+                }
 
                 // Definitions
                 VStack(alignment: .leading, spacing: 4) {
@@ -80,6 +107,10 @@ struct ReviewView: View {
 
                 Spacer()
 
+                Text("Rate with 1, 2, 3, or 4")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
                 // Rating buttons
                 HStack(spacing: 16) {
                     ratingButton("Again", color: .red, rating: .again)
@@ -91,13 +122,22 @@ struct ReviewView: View {
             } else {
                 Spacer()
 
-                Button("Show Answer") {
-                    withAnimation(.easeOut(duration: 0.2)) {
-                        showAnswer = true
+                VStack(spacing: 8) {
+                    Button("Show Answer") {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            showAnswer = true
+                        }
                     }
+                    .buttonStyle(.borderedProminent)
+                    .keyboardShortcut(.space, modifiers: [])
+                    .accessibilityLabel("Show Answer")
+                    .accessibilityValue("Shortcut Space")
+                    .accessibilityIdentifier("leo.review.showAnswer")
+
+                    Text("Press Space to reveal the answer")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.borderedProminent)
-                .keyboardShortcut(.space, modifiers: [])
                 .padding(.bottom, 24)
             }
         }
@@ -106,15 +146,32 @@ struct ReviewView: View {
 
     private func ratingButton(_ label: String, color: Color, rating: Rating) -> some View {
         Button(action: { rate(rating) }) {
-            Text(label)
-                .frame(width: 70)
+            VStack(spacing: 2) {
+                Text(label)
+                Text(keyHint(for: rating))
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(width: 78)
         }
         .buttonStyle(.bordered)
         .tint(color)
         .keyboardShortcut(keyForRating(rating), modifiers: [])
+        .accessibilityLabel(label)
+        .accessibilityValue("Shortcut \(keyHint(for: rating))")
+        .accessibilityIdentifier(rating == .good ? "leo.review.rate.good" : "leo.review.rate.\(label.lowercased())")
     }
 
     private func keyForRating(_ rating: Rating) -> KeyEquivalent {
+        switch rating {
+        case .again: "1"
+        case .hard: "2"
+        case .good: "3"
+        case .easy: "4"
+        }
+    }
+
+    private func keyHint(for rating: Rating) -> String {
         switch rating {
         case .again: "1"
         case .hard: "2"
@@ -132,7 +189,15 @@ struct ReviewView: View {
                 .foregroundStyle(.green)
             Text("All caught up!")
                 .font(.title2.weight(.medium))
-            Text("No cards due for review.")
+            if reviewedCount > 0 {
+                Text("Reviewed \(reviewedCount) card\(reviewedCount == 1 ? "" : "s") this session.")
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("No cards due for review.")
+                    .foregroundStyle(.secondary)
+            }
+            Text("Leo will bring the next due cards back here automatically.")
+                .font(.caption)
                 .foregroundStyle(.secondary)
             Button("Refresh") {
                 loadDueCards()
@@ -144,22 +209,26 @@ struct ReviewView: View {
 
     private func rate(_ rating: Rating) {
         let fsrs = FSRSEngine(modelContext: modelContext)
-        let card = dueCards[currentIndex]
+        let card = dueCards[0]
         fsrs.review(card: card, rating: rating)
 
+        reviewedCount += 1
         showAnswer = false
-        if currentIndex + 1 < dueCards.count {
-            currentIndex += 1
-        } else {
-            sessionComplete = true
-        }
+        loadDueCards(preservingSessionCounts: true)
     }
 
-    private func loadDueCards() {
+    private func loadDueCards(preservingSessionCounts: Bool = false) {
         let fsrs = FSRSEngine(modelContext: modelContext)
         dueCards = fsrs.dueCards()
-        currentIndex = 0
         showAnswer = false
         sessionComplete = dueCards.isEmpty
+
+        if preservingSessionCounts {
+            sessionComplete = dueCards.isEmpty
+            sessionTargetCount = max(sessionTargetCount, reviewedCount + dueCards.count)
+        } else {
+            reviewedCount = 0
+            sessionTargetCount = dueCards.count
+        }
     }
 }

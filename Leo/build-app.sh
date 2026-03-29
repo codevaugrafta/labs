@@ -6,11 +6,14 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
 APP_NAME="Leo"
-BUNDLE_NAME="${APP_NAME}.app"
+BUNDLE_STEM="${LEO_BUNDLE_STEM_OVERRIDE:-${APP_NAME}}"
+BUNDLE_NAME="${BUNDLE_STEM}.app"
+BUNDLE_ID="${LEO_BUNDLE_ID_OVERRIDE:-com.franciscodilussor.leo}"
 OUTPUT_DIR="build"
 APP_BUNDLE="${OUTPUT_DIR}/${BUNDLE_NAME}"
+INFO_PLIST_PATH="${APP_BUNDLE}/Contents/Info.plist"
 
-echo "=== Building ${APP_NAME} (release) ==="
+echo "=== Building ${BUNDLE_STEM} (release) ==="
 
 # Step 1: Build with SPM
 echo "[1/4] Compiling..."
@@ -36,6 +39,9 @@ mkdir -p "${APP_BUNDLE}/Contents/Resources"
 echo "[3/4] Copying files..."
 cp "$EXECUTABLE" "${APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
 cp "Sources/Resources/Info.plist" "${APP_BUNDLE}/Contents/"
+/usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier ${BUNDLE_ID}" "${INFO_PLIST_PATH}" >/dev/null
+/usr/libexec/PlistBuddy -c "Set :CFBundleName ${BUNDLE_STEM}" "${INFO_PLIST_PATH}" >/dev/null
+/usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName ${BUNDLE_STEM}" "${INFO_PLIST_PATH}" >/dev/null
 
 # Copy dictionary and SPM bundle resources
 if [ -d "${BUILD_DIR}/Leo_Leo.bundle" ]; then

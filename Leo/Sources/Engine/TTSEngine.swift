@@ -1,9 +1,7 @@
 import Foundation
 import AVFoundation
 
-/// TTS Engine with word-level timestamp sync.
-/// Primary: InWorld TTS-1.5 Max (word timestamps, Chinese support)
-/// Fallback: Edge TTS (free, word boundaries via Python bridge — future)
+/// Read aloud: InWorld (optional key, word timestamps) or macOS `AVSpeechSynthesizer` (free).
 @MainActor
 final class TTSEngine: NSObject, ObservableObject {
     @Published var isPlaying = false
@@ -14,8 +12,10 @@ final class TTSEngine: NSObject, ObservableObject {
     private var audioPlayer: AVAudioPlayer?
     private var wordTimestamps: [WordTimestamp] = []
     private var displayLink: Timer?
-    private var playbackStartTime: Date?
-    private var seekOffset: TimeInterval = 0
+
+    private let speechSynthesizer = AVSpeechSynthesizer()
+    private var systemUtterance: AVSpeechUtterance?
+    private var activeBackend: LeoTTSBackend?
 
     struct WordTimestamp: Sendable {
         let word: String
@@ -28,53 +28,95 @@ final class TTSEngine: NSObject, ObservableObject {
         let timestamps: [WordTimestamp]
     }
 
+    override init() {
+        super.init()
+        speechSynthesizer.delegate = self
+    }
+
     // MARK: - Public API
 
-    /// Generate TTS audio with word timestamps for a text.
     func generate(text: String) async {
         guard !text.isEmpty else { return }
         isLoading = true
         error = nil
+        stopAllOutputs()
 
-        do {
-            let result = try await callInWorldTTS(text: text)
-            wordTimestamps = result.timestamps
-            audioPlayer = try AVAudioPlayer(data: result.audioData)
-            audioPlayer?.delegate = self
-            audioPlayer?.prepareToPlay()
-            isLoading = false
-        } catch {
-            self.error = error.localizedDescription
+        let hasKey = getAPIKey() != nil
+        let preferSystem = UserDefaults.standard.bool(forKey: "leo.ttsPreferSystem")
+        let backend = TTSProviderResolution.resolveBackend(hasInWorldKey: hasKey, preferSystem: preferSystem)
+        activeBackend = backend
+
+        switch backend {
+        case .inWorld:
+            do {
+                let result = try await callInWorldTTS(text: text)
+                wordTimestamps = result.timestamps
+                audioPlayer = try AVAudioPlayer(data: result.audioData)
+                audioPlayer?.delegate = self
+                audioPlayer?.prepareToPlay()
+                applyUserSpeedToPlayer()
+                isLoading = false
+            } catch {
+                self.error = error.localizedDescription
+                isLoading = false
+            }
+        case .systemSpeech:
+            wordTimestamps = []
+            let utterance = AVSpeechUtterance(string: text)
+            utterance.voice = Self.preferredChineseVoice() ?? AVSpeechSynthesisVoice(language: "zh-CN")
+            utterance.rate = Self.clampedSpeechRate(fromUserMultiplier: Self.userSpeedMultiplier())
+            systemUtterance = utterance
             isLoading = false
         }
     }
 
     /// Start or resume playback.
     func play() {
-        guard let player = audioPlayer else { return }
-        player.play()
-        isPlaying = true
-        startHighlightTimer()
+        switch activeBackend {
+        case .inWorld:
+            guard let player = audioPlayer else { return }
+            player.play()
+            isPlaying = true
+            startHighlightTimer()
+        case .systemSpeech:
+            guard let utt = systemUtterance else { return }
+            if speechSynthesizer.isPaused {
+                speechSynthesizer.continueSpeaking()
+            } else if !speechSynthesizer.isSpeaking {
+                speechSynthesizer.speak(utt)
+            }
+            isPlaying = true
+        case .none:
+            break
+        }
     }
 
     /// Pause playback.
     func pause() {
-        audioPlayer?.pause()
-        isPlaying = false
-        stopHighlightTimer()
+        switch activeBackend {
+        case .inWorld:
+            audioPlayer?.pause()
+            isPlaying = false
+            stopHighlightTimer()
+        case .systemSpeech:
+            if speechSynthesizer.isSpeaking {
+                speechSynthesizer.pauseSpeaking(at: .word)
+            }
+            isPlaying = false
+        case .none:
+            break
+        }
     }
 
     /// Stop playback and reset.
     func stop() {
-        audioPlayer?.stop()
-        audioPlayer?.currentTime = 0
+        stopAllOutputs()
         isPlaying = false
         currentWordIndex = -1
-        seekOffset = 0
-        stopHighlightTimer()
+        activeBackend = nil
+        systemUtterance = nil
     }
 
-    /// Seek to a specific word by index.
     func seekToWord(at index: Int) {
         guard index >= 0, index < wordTimestamps.count else { return }
         let timestamp = wordTimestamps[index]
@@ -85,7 +127,6 @@ final class TTSEngine: NSObject, ObservableObject {
         }
     }
 
-    /// Seek to a word matching the given text (for click-to-seek from reader).
     func seekToWord(_ word: String, occurrence: Int = 0) {
         var count = 0
         for (index, ts) in wordTimestamps.enumerated() where ts.word == word {
@@ -97,28 +138,66 @@ final class TTSEngine: NSObject, ObservableObject {
         }
     }
 
-    /// Set playback speed.
     func setSpeed(_ rate: Float) {
         audioPlayer?.rate = rate
         audioPlayer?.enableRate = true
+        systemUtterance?.rate = Self.clampedSpeechRate(fromUserMultiplier: Double(rate))
     }
 
-    /// Current playback time in seconds.
     var currentTime: TimeInterval {
         audioPlayer?.currentTime ?? 0
     }
 
-    /// Total duration in seconds.
     var duration: TimeInterval {
         audioPlayer?.duration ?? 0
     }
 
-    /// The word timestamps for UI sync.
     var timestamps: [WordTimestamp] {
         wordTimestamps
     }
 
-    // MARK: - InWorld API
+    // MARK: - Private
+
+    private func stopAllOutputs() {
+        audioPlayer?.stop()
+        audioPlayer?.delegate = nil
+        audioPlayer = nil
+        if speechSynthesizer.isSpeaking || speechSynthesizer.isPaused {
+            speechSynthesizer.stopSpeaking(at: .immediate)
+        }
+        stopHighlightTimer()
+        wordTimestamps = []
+        currentWordIndex = -1
+        systemUtterance = nil
+    }
+
+    private func applyUserSpeedToPlayer() {
+        let speed = Self.userSpeedMultiplier()
+        if speed > 0 {
+            setSpeed(Float(speed))
+        }
+    }
+
+    private static func userSpeedMultiplier() -> Double {
+        let v = UserDefaults.standard.double(forKey: "leo.ttsSpeed")
+        return v > 0 ? v : 1.0
+    }
+
+    /// Map UI multiplier (0.5...2.0) to AVSpeechUtterance rate.
+    private static func clampedSpeechRate(fromUserMultiplier multiplier: Double) -> Float {
+        let base = Double(AVSpeechUtteranceDefaultSpeechRate)
+        let scaled = base * multiplier
+        let lo = Double(AVSpeechUtteranceMinimumSpeechRate)
+        let hi = Double(AVSpeechUtteranceMaximumSpeechRate)
+        return Float(min(max(scaled, lo + 0.01), hi - 0.01))
+    }
+
+    private static func preferredChineseVoice() -> AVSpeechSynthesisVoice? {
+        for voice in AVSpeechSynthesisVoice.speechVoices() where voice.language.hasPrefix("zh") {
+            return voice
+        }
+        return AVSpeechSynthesisVoice(language: "zh-CN")
+    }
 
     private func callInWorldTTS(text: String) async throws -> TTSResult {
         guard let apiKey = getAPIKey() else {
@@ -131,10 +210,13 @@ final class TTSEngine: NSObject, ObservableObject {
         request.setValue("Basic \(apiKey)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
+        let voiceId = UserDefaults.standard.string(forKey: "leo.ttsVoice") ?? "Dennis"
+        let modelId = UserDefaults.standard.string(forKey: "leo.ttsModel") ?? "inworld-tts-1.5-max"
+
         let body: [String: Any] = [
             "text": text,
-            "voiceId": "Dennis", // Default — will be configurable
-            "modelId": "inworld-tts-1.5-max",
+            "voiceId": voiceId,
+            "modelId": modelId,
             "audioConfig": [
                 "audioEncoding": "MP3",
                 "sampleRateHertz": 22050,
@@ -165,13 +247,11 @@ final class TTSEngine: NSObject, ObservableObject {
             throw TTSError.parseError
         }
 
-        // Extract audio data (base64 encoded)
         guard let audioBase64 = json["audio"] as? String,
               let audioData = Data(base64Encoded: audioBase64) else {
             throw TTSError.parseError
         }
 
-        // Extract word timestamps
         var timestamps: [WordTimestamp] = []
         if let timestampInfo = json["timestampInfo"] as? [String: Any],
            let wordAlignment = timestampInfo["wordAlignment"] as? [[String: Any]] {
@@ -187,11 +267,8 @@ final class TTSEngine: NSObject, ObservableObject {
         return TTSResult(audioData: audioData, timestamps: timestamps)
     }
 
-    // MARK: - Highlight Timer
-
     private func startHighlightTimer() {
         stopHighlightTimer()
-        // Update highlight every 50ms for smooth tracking
         displayLink = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.updateHighlight()
@@ -218,19 +295,16 @@ final class TTSEngine: NSObject, ObservableObject {
         }
     }
 
-    // MARK: - API Key Management
-
     private func getAPIKey() -> String? {
-        // Check Keychain first, then environment
         if let key = ProcessInfo.processInfo.environment["INWORLD_API_KEY"], !key.isEmpty {
             return key
         }
-        // TODO: Read from Keychain (KeychainHelper integration)
+        if let key = LeoKeychainHelper().getSecret(for: .inWorld), !key.isEmpty {
+            return key
+        }
         return nil
     }
 }
-
-// MARK: - AVAudioPlayerDelegate
 
 extension TTSEngine: AVAudioPlayerDelegate {
     nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
@@ -242,7 +316,20 @@ extension TTSEngine: AVAudioPlayerDelegate {
     }
 }
 
-// MARK: - Errors
+extension TTSEngine: AVSpeechSynthesizerDelegate {
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
+        Task { @MainActor in
+            isPlaying = false
+            currentWordIndex = -1
+        }
+    }
+
+    nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
+        Task { @MainActor in
+            isPlaying = false
+        }
+    }
+}
 
 enum TTSError: LocalizedError {
     case noAPIKey
@@ -252,7 +339,7 @@ enum TTSError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .noAPIKey: "No InWorld API key configured. Set INWORLD_API_KEY environment variable."
+        case .noAPIKey: "No InWorld API key configured. Add one in Settings or set INWORLD_API_KEY."
         case .invalidResponse: "Invalid response from TTS API"
         case .apiError(let code, let msg): "TTS API error (\(code)): \(msg)"
         case .parseError: "Failed to parse TTS response"

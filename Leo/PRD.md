@@ -74,7 +74,7 @@ No macOS native app exists in this space. Leo is the first.
 
 ### Architecture: 11 Deep Modules
 
-**1. ContentIngestion** — Parses EPUB via Readium Swift Toolkit and PDF via Apple PDFKit into a unified `Publication` model. Extracts raw text for the NLP pipeline. Single interface: file URL in, structured content out.
+**1. ContentIngestion** — Ships as **Foliate-js** inside a **WKWebView** with a **local HTTP server** (secure context for modern JS); PDF via **PDFKit** for display. (Readium Swift Toolkit was an early design direction; the macOS app uses Foliate for EPUB rendering.)
 
 **2. ChineseParser** — The core differentiator. Three-layer architecture:
 - Layer 1 (on-device, instant): Apple NLTagger for word boundary detection — good enough for tap-to-select

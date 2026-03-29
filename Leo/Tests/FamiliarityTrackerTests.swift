@@ -168,4 +168,23 @@ struct FamiliarityTrackerTests {
         #expect(FamiliarityState.learning < .familiar)
         #expect(FamiliarityState.familiar < .known)
     }
+
+    @Test("applyImportedStates promotes to higher Anki-mapped state")
+    @MainActor
+    func ankiImportPromotion() throws {
+        let (tracker, _) = try makeTracker()
+        tracker.recordEncounter("桥")
+        #expect(tracker.state(for: "桥") == .seen)
+        tracker.applyImportedStates([(word: "桥", state: .known)])
+        #expect(tracker.state(for: "桥") == .known)
+    }
+
+    @Test("applyImportedStates does not demote")
+    @MainActor
+    func ankiImportNoDemote() throws {
+        let (tracker, _) = try makeTracker()
+        tracker.markAsKnown("路")
+        tracker.applyImportedStates([(word: "路", state: .seen)])
+        #expect(tracker.state(for: "路") == .known)
+    }
 }

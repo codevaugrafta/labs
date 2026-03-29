@@ -1,6 +1,23 @@
 import SwiftUI
 import WebKit
 
+/// Values mirrored from Settings → Reading (`@AppStorage`), pushed into foliate `reader.js`.
+struct LeoReadingChromePreferences: Equatable {
+    var fontSize: Double
+    var lineHeight: Double
+    var textDirection: String
+    var showPinyin: Bool
+    var showHighlights: Bool
+
+    static let defaultPrefs = LeoReadingChromePreferences(
+        fontSize: 18,
+        lineHeight: 1.8,
+        textDirection: "horizontal",
+        showPinyin: false,
+        showHighlights: true
+    )
+}
+
 /// EPUB reader powered by foliate-js via localhost HTTP server.
 /// Dictionary lookups are shown as a floating HTML popup rendered inside the WKWebView,
 /// positioned near the tapped word. No SwiftUI overlay is needed.
@@ -8,6 +25,11 @@ struct FoliateReaderView: NSViewRepresentable {
     let bookFilePath: String
     let bookId: String
     let theme: ReadingTheme
+    let initialLocator: BookLocator?
+    let readingChrome: LeoReadingChromePreferences
+    let onRelocate: (BookLocator) -> Void
+    let onLoadSuccess: () -> Void
+    let onLoadError: (String) -> Void
 
     /// Called when the user taps a word. The coordinator performs a dictionary lookup
     /// and renders the popup directly in JS. This closure receives the resolved word,
@@ -18,13 +40,29 @@ struct FoliateReaderView: NSViewRepresentable {
     /// The ReaderView uses this to drive FamiliarityTracker / FSRSEngine.
     let onPopupAction: (_ action: PopupAction, _ word: String) -> Void
 
+    /// Maps a resolved word to its familiarity for the JS popup badge.
+    let familiarityForWord: (String) -> FamiliarityState
+
+    /// Indicates whether the word already has an FSRS review card.
+    let hasReviewCardForWord: (String) -> Bool
+
     enum PopupAction {
         case markKnown
         case addToSRS
     }
 
     func makeCoordinator() -> Coordinator {
-        Coordinator(onWordTapped: onWordTapped, onPopupAction: onPopupAction)
+        Coordinator(
+            initialLocator: initialLocator,
+            onRelocate: onRelocate,
+            onLoadSuccess: onLoadSuccess,
+            onLoadError: onLoadError,
+            onWordTapped: onWordTapped,
+            onPopupAction: onPopupAction,
+            familiarityForWord: familiarityForWord,
+            hasReviewCardForWord: hasReviewCardForWord,
+            shouldAutoAdvanceForUITest: ProcessInfo.processInfo.environment["LEO_UI_TEST_AUTO_ADVANCE_PAGE"] == "1"
+        )
     }
 
     func makeNSView(context: Context) -> WKWebView {
@@ -51,54 +89,86 @@ struct FoliateReaderView: NSViewRepresentable {
             webView.load(URLRequest(url: readerURL))
         } else {
             NSLog("[Leo Foliate] ERROR: Server not running, no reader URL")
+            DispatchQueue.main.async {
+                context.coordinator.onLoadError("Leo couldn’t connect to the embedded reader server. Retry the reader and try again.")
+            }
         }
 
         context.coordinator.webView = webView
         context.coordinator.bookId = bookId
+        context.coordinator.latestTheme = theme
+        context.coordinator.latestReading = readingChrome
+        context.coordinator.initialLocator = initialLocator
         return webView
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
+        context.coordinator.latestTheme = theme
+        context.coordinator.latestReading = readingChrome
+        context.coordinator.initialLocator = initialLocator
+
         // If book changed, reload
         if context.coordinator.bookId != bookId {
+            context.coordinator.pageLoaded = false
+            context.coordinator.didAutoAdvanceForUITest = false
             context.coordinator.bookId = bookId
             LocalServer.shared.registerBook(id: bookId, filePath: bookFilePath)
             if let readerURL = LocalServer.shared.readerURL {
                 webView.load(URLRequest(url: readerURL))
             }
+            return
         }
 
-        // Apply theme changes
-        if context.coordinator.currentTheme != theme.rawValue {
-            context.coordinator.currentTheme = theme.rawValue
-            let themeData: [String: String] = switch theme {
-            case .light: ["bg": "#FFFFFF", "fg": "#1A1A1A"]
-            case .dark: ["bg": "#1E1E1E", "fg": "#D4D4D4"]
-            case .sepia: ["bg": "#F5EDDC", "fg": "#4A3520"]
-            }
-            let json = try? JSONSerialization.data(withJSONObject: themeData)
-            if let json, let jsonStr = String(data: json, encoding: .utf8) {
-                webView.evaluateJavaScript("setTheme(\(jsonStr))")
-            }
+        let themeStr = theme.rawValue
+        let chromeChanged =
+            context.coordinator.lastPushedTheme != themeStr
+            || context.coordinator.lastPushedChrome != readingChrome
+        if chromeChanged, context.coordinator.pageLoaded {
+            context.coordinator.pushReaderChrome(webView: webView)
         }
     }
 
     // MARK: - Coordinator
 
     class Coordinator: NSObject, WKScriptMessageHandler, WKNavigationDelegate {
+        var initialLocator: BookLocator?
+        let onRelocate: (BookLocator) -> Void
+        let onLoadSuccess: () -> Void
+        let onLoadError: (String) -> Void
         let onWordTapped: (String, String, Int, CGFloat, CGFloat) -> Void
         let onPopupAction: (PopupAction, String) -> Void
+        let familiarityForWord: (String) -> FamiliarityState
+        let hasReviewCardForWord: (String) -> Bool
+        let shouldAutoAdvanceForUITest: Bool
         weak var webView: WKWebView?
         var bookId: String = ""
-        var currentTheme: String = "light"
-        private var pageLoaded = false
+        var latestTheme: ReadingTheme = .light
+        var latestReading: LeoReadingChromePreferences = .defaultPrefs
+        var lastPushedTheme: String?
+        var lastPushedChrome: LeoReadingChromePreferences?
+        var pageLoaded = false
+        var didAutoAdvanceForUITest = false
 
         init(
+            initialLocator: BookLocator?,
+            onRelocate: @escaping (BookLocator) -> Void,
+            onLoadSuccess: @escaping () -> Void,
+            onLoadError: @escaping (String) -> Void,
             onWordTapped: @escaping (String, String, Int, CGFloat, CGFloat) -> Void,
-            onPopupAction: @escaping (PopupAction, String) -> Void
+            onPopupAction: @escaping (PopupAction, String) -> Void,
+            familiarityForWord: @escaping (String) -> FamiliarityState,
+            hasReviewCardForWord: @escaping (String) -> Bool,
+            shouldAutoAdvanceForUITest: Bool
         ) {
+            self.initialLocator = initialLocator
+            self.onRelocate = onRelocate
+            self.onLoadSuccess = onLoadSuccess
+            self.onLoadError = onLoadError
             self.onWordTapped = onWordTapped
             self.onPopupAction = onPopupAction
+            self.familiarityForWord = familiarityForWord
+            self.hasReviewCardForWord = hasReviewCardForWord
+            self.shouldAutoAdvanceForUITest = shouldAutoAdvanceForUITest
         }
 
         // JS → Swift messages
@@ -117,16 +187,23 @@ struct FoliateReaderView: NSViewRepresentable {
             switch type {
             case "ready":
                 NSLog("[Leo Bridge] JS bridge ready")
+                pageLoaded = true
+                guard let wv = webView else { return }
+                pushReaderChrome(webView: wv)
                 openCurrentBook()
 
             case "loaded":
                 let title = payload["title"] as? String ?? ""
                 let chapters = payload["chapterCount"] as? Int ?? 0
                 NSLog("[Leo Bridge] Book loaded: '\(title)', \(chapters) chapters")
+                DispatchQueue.main.async {
+                    self.onLoadSuccess()
+                }
 
             case "chapterLoaded":
                 let index = payload["index"] as? Int ?? -1
                 NSLog("[Leo Bridge] Chapter \(index) loaded")
+                maybeAdvanceForUITest()
 
             case "wordTap":
                 guard let context = payload["context"] as? String,
@@ -152,7 +229,20 @@ struct FoliateReaderView: NSViewRepresentable {
                 }
 
                 // Build popup data and call showPopup() in JS
-                showPopupInJS(word: word, entries: entries, freqData: freqData, x: x, y: y)
+                let familiarity = self.familiarityForWord(word)
+                let pinyinForPopup = self.latestReading.showPinyin
+                    ? (entries.first?.pinyinDisplay ?? "")
+                    : ""
+                showPopupInJS(
+                    word: word,
+                    pinyin: pinyinForPopup,
+                    context: context,
+                    entries: entries,
+                    freqData: freqData,
+                    familiarity: familiarity,
+                    x: x,
+                    y: y
+                )
 
             case "popupAction":
                 let action = payload["action"] as? String ?? ""
@@ -170,11 +260,19 @@ struct FoliateReaderView: NSViewRepresentable {
                 let cfi = payload["cfi"] as? String ?? ""
                 let fraction = payload["fraction"] as? Double ?? 0
                 NSLog("[Leo Bridge] Relocate: \(Int(fraction * 100))%, cfi=\(cfi.prefix(30))...")
+                guard !cfi.isEmpty else { return }
+                let locator = BookLocator(cfi: cfi, fraction: fraction, updatedAt: Date())
+                DispatchQueue.main.async {
+                    self.onRelocate(locator)
+                }
 
             case "error":
                 let msg = payload["message"] as? String ?? "Unknown"
                 let source = payload["source"] as? String ?? ""
                 NSLog("[Leo Bridge] ERROR from JS: \(msg) (source: \(source))")
+                DispatchQueue.main.async {
+                    self.onLoadError(msg.isEmpty ? "Leo’s reader page failed to load." : msg)
+                }
 
             default:
                 NSLog("[Leo Bridge] Unknown message type: \(type)")
@@ -185,19 +283,25 @@ struct FoliateReaderView: NSViewRepresentable {
 
         private func showPopupInJS(
             word: String,
+            pinyin: String,
+            context: String,
             entries: [DictionaryEngine.Entry],
             freqData: FrequencyEngine.FrequencyData,
+            familiarity: FamiliarityState,
             x: CGFloat,
             y: CGFloat
         ) {
-            let pinyin = entries.first?.pinyinDisplay ?? ""
             let definitions = entries.prefix(2).flatMap { $0.definitions.prefix(4) }
+            let alreadyInReview = hasReviewCardForWord(word)
             var popupData: [String: Any] = [
                 "word": word,
                 "pinyin": pinyin,
                 "definitions": Array(definitions),
                 "frequencyTier": freqData.tier.rawValue,
                 "frequencyColor": freqData.tier.color,
+                "familiarityLabel": familiarity.label,
+                "canMarkKnown": familiarity != .known,
+                "alreadyInReview": alreadyInReview,
             ]
             if let hsk = freqData.hskLevel {
                 popupData["hskLevel"] = hsk
@@ -217,6 +321,38 @@ struct FoliateReaderView: NSViewRepresentable {
                     }
                 }
             }
+
+            scheduleContextualLookup(word: word, sentence: context)
+        }
+
+        private func scheduleContextualLookup(word: String, sentence: String) {
+            guard let apiKey = LeoKeychainHelper().getSecret(for: .openRouter),
+                  !apiKey.isEmpty else { return }
+
+            let model = UserDefaults.standard.string(forKey: "leo.lookupModel") ?? "qwen/qwen-2.5-72b-instruct"
+            Task { [weak self] in
+                do {
+                    let text = try await OpenRouterLookupService.fetchContextualMeaning(
+                        word: word,
+                        sentence: sentence,
+                        apiKey: apiKey,
+                        model: model
+                    )
+                    guard let encoded = try? JSONSerialization.data(withJSONObject: text),
+                          let jsLiteral = String(data: encoded, encoding: .utf8) else {
+                        return
+                    }
+                    await MainActor.run {
+                        self?.webView?.evaluateJavaScript("updatePopupContext(\(jsLiteral))") { _, error in
+                            if let error {
+                                NSLog("[Leo Bridge] updatePopupContext error: \(error)")
+                            }
+                        }
+                    }
+                } catch {
+                    NSLog("[Leo Bridge] OpenRouter: \(error.localizedDescription)")
+                }
+            }
         }
 
         // MARK: - Book opening
@@ -226,11 +362,39 @@ struct FoliateReaderView: NSViewRepresentable {
                 NSLog("[Leo Bridge] ERROR: No URL for book \(bookId)")
                 return
             }
-            let js = "openBook('\(bookURL.absoluteString)')"
+            guard
+                let requestData = try? JSONSerialization.data(withJSONObject: [
+                    "url": bookURL.absoluteString,
+                    "locator": initialLocator?.cfi ?? "",
+                ]),
+                let requestJSON = String(data: requestData, encoding: .utf8)
+            else {
+                onLoadError("Leo couldn’t prepare the selected book for reading.")
+                return
+            }
+            let js = "openBook(\(requestJSON))"
             NSLog("[Leo Bridge] Opening book: \(js)")
             webView?.evaluateJavaScript(js) { _, error in
                 if let error {
                     NSLog("[Leo Bridge] evaluateJavaScript error: \(error)")
+                    DispatchQueue.main.async {
+                        self.onLoadError(error.localizedDescription)
+                    }
+                }
+            }
+        }
+
+        private func maybeAdvanceForUITest() {
+            guard shouldAutoAdvanceForUITest,
+                  !didAutoAdvanceForUITest,
+                  initialLocator == nil else { return }
+
+            didAutoAdvanceForUITest = true
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+                self?.webView?.evaluateJavaScript("window.nextPage()") { _, error in
+                    if let error {
+                        NSLog("[Leo Bridge] UI test auto-advance failed: \(error)")
+                    }
                 }
             }
         }
@@ -238,15 +402,50 @@ struct FoliateReaderView: NSViewRepresentable {
         // WKNavigationDelegate — catch load errors
         func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
             NSLog("[Leo WebView] Navigation failed: \(error)")
+            onLoadError(error.localizedDescription)
         }
 
         func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
             NSLog("[Leo WebView] Provisional navigation failed: \(error)")
+            onLoadError(error.localizedDescription)
         }
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             NSLog("[Leo WebView] Page loaded successfully")
-            pageLoaded = true
+        }
+
+        /// Push theme + Reading settings into `reader.js` (`setTheme` + `applyReadingPreferences`).
+        func pushReaderChrome(webView: WKWebView) {
+            let themeData: [String: String] = switch latestTheme {
+            case .light: ["bg": "#FFFFFF", "fg": "#1A1A1A"]
+            case .dark: ["bg": "#1E1E1E", "fg": "#D4D4D4"]
+            case .sepia: ["bg": "#F5EDDC", "fg": "#4A3520"]
+            }
+            guard
+                let themeJSON = try? JSONSerialization.data(withJSONObject: themeData),
+                let themeStr = String(data: themeJSON, encoding: .utf8)
+            else { return }
+
+            let prefs: [String: Any] = [
+                "fontSizePt": latestReading.fontSize,
+                "lineHeight": latestReading.lineHeight,
+                "textDirection": latestReading.textDirection,
+                "showPinyin": latestReading.showPinyin,
+                "showHighlights": latestReading.showHighlights,
+            ]
+            guard
+                let prefsJSON = try? JSONSerialization.data(withJSONObject: prefs),
+                let prefsStr = String(data: prefsJSON, encoding: .utf8)
+            else { return }
+
+            let js = "setTheme(\(themeStr)); applyReadingPreferences(\(prefsStr));"
+            webView.evaluateJavaScript(js) { _, error in
+                if let error {
+                    NSLog("[Leo Bridge] pushReaderChrome: \(error)")
+                }
+            }
+            lastPushedTheme = latestTheme.rawValue
+            lastPushedChrome = latestReading
         }
     }
 }
