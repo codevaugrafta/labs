@@ -53,7 +53,7 @@ struct ReaderView: View {
                 if showsOriginalPDF {
                     PDFReaderView(
                         filePath: book.filePath,
-                        initialPageIndex: book.pdfLastPageIndex,
+                        initialPageIndex: book.safePdfLastPageIndex,
                         layoutMode: pdfLayoutMode,
                         scrollAxis: pdfScrollAxis,
                         fitPolicy: pdfFitPolicy,
@@ -454,7 +454,7 @@ struct ReaderView: View {
     private func persistPDFPage(_ pageIndex: Int) {
         guard book.format == .pdf else { return }
         let normalizedPageIndex = max(0, pageIndex)
-        let shouldSave = book.pdfLastPageIndex != normalizedPageIndex || book.lastOpenedAt == nil
+        let shouldSave = book.safePdfLastPageIndex != normalizedPageIndex || book.lastOpenedAt == nil
         guard shouldSave else {
             if ProcessInfo.processInfo.environment["LEO_UI_TEST_CAPTURE_PDF_PAGE"] == "1" {
                 uiTestPDFPageSummary = pdfPageSummary(for: normalizedPageIndex)
@@ -462,7 +462,7 @@ struct ReaderView: View {
             return
         }
 
-        book.pdfLastPageIndex = normalizedPageIndex
+        book.safePdfLastPageIndex = normalizedPageIndex
         book.lastOpenedAt = Date()
         saveBookState(context: "PDF page position")
 
@@ -493,12 +493,12 @@ struct ReaderView: View {
         pdfScrollAxis = PDFScrollAxis(rawValue: storedPDFScrollAxis) ?? .vertical
 
         let storedFitPolicy = PDFPageFitPolicy(rawValue: storedPDFFitPolicy) ?? .fitPage
-        let shouldUseStoredFitPolicy = book.lastOpenedAt == nil && book.pdfLastPageIndex == 0
+        let shouldUseStoredFitPolicy = book.lastOpenedAt == nil && book.safePdfLastPageIndex == 0
         pdfFitPolicy = shouldUseStoredFitPolicy ? storedFitPolicy : book.pdfFitPolicy
 
         activePDFMode = (book.preferredPDFMode == .bookView && bookViewReady) ? .bookView : .originalPDF
         if ProcessInfo.processInfo.environment["LEO_UI_TEST_CAPTURE_PDF_PAGE"] == "1" {
-            uiTestPDFPageSummary = pdfPageSummary(for: book.pdfLastPageIndex)
+            uiTestPDFPageSummary = pdfPageSummary(for: book.safePdfLastPageIndex)
         }
     }
 
@@ -534,7 +534,7 @@ struct ReaderView: View {
         }
 
         if ProcessInfo.processInfo.environment["LEO_UI_TEST_CAPTURE_PDF_PAGE"] == "1", showsOriginalPDF {
-            uiTestPDFPageSummary = pdfPageSummary(for: book.pdfLastPageIndex)
+            uiTestPDFPageSummary = pdfPageSummary(for: book.safePdfLastPageIndex)
         } else if !showsOriginalPDF {
             uiTestPDFPageSummary = nil
         }

@@ -20,11 +20,11 @@ final class Book {
     /// Legacy compatibility only. Older Leo builds rewrote PDF books into EPUBs and stored the source PDF here.
     var originalPDFPath: String?
     var derivedEPUBPath: String?
-    var pdfPreparationStatusRaw: String
+    var pdfPreparationStatusRaw: String?
     var pdfPreparationError: String?
-    var preferredPDFModeRaw: String
-    var pdfLastPageIndex: Int
-    var pdfFitPolicyRaw: String
+    var preferredPDFModeRaw: String?
+    var pdfLastPageIndex: Int?
+    var pdfFitPolicyRaw: String?
 
     init(
         title: String,
@@ -57,18 +57,23 @@ enum BookFormat: String, Codable {
 
 extension Book {
     var pdfPreparationStatus: PDFBookPreparationStatus {
-        get { PDFBookPreparationStatus(rawValue: pdfPreparationStatusRaw) ?? .idle }
+        get { PDFBookPreparationStatus(rawValue: pdfPreparationStatusRaw ?? "") ?? .idle }
         set { pdfPreparationStatusRaw = newValue.rawValue }
     }
 
     var preferredPDFMode: PDFReadingMode {
-        get { PDFReadingMode(rawValue: preferredPDFModeRaw) ?? .originalPDF }
+        get { PDFReadingMode(rawValue: preferredPDFModeRaw ?? "") ?? .originalPDF }
         set { preferredPDFModeRaw = newValue.rawValue }
     }
 
     var pdfFitPolicy: PDFPageFitPolicy {
-        get { PDFPageFitPolicy(rawValue: pdfFitPolicyRaw) ?? .fitPage }
+        get { PDFPageFitPolicy(rawValue: pdfFitPolicyRaw ?? "") ?? .fitPage }
         set { pdfFitPolicyRaw = newValue.rawValue }
+    }
+
+    var safePdfLastPageIndex: Int {
+        get { pdfLastPageIndex ?? 0 }
+        set { pdfLastPageIndex = newValue }
     }
 
     var hasPreparedBookView: Bool {
