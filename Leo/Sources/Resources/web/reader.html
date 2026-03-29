@@ -40,6 +40,41 @@
             font-family: -apple-system, sans-serif;
             text-align: center;
         }
+
+        /* --- Progress bar --- */
+        #leo-progress-bar-container {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            z-index: 1000;
+            pointer-events: none;
+        }
+        #leo-progress-label {
+            display: none;
+            position: absolute;
+            bottom: 6px;
+            right: 10px;
+            font-family: -apple-system, "PingFang SC", sans-serif;
+            font-size: 11px;
+            font-weight: 500;
+            color: rgba(120, 120, 130, 0.85);
+            letter-spacing: 0.01em;
+            white-space: nowrap;
+            user-select: none;
+            pointer-events: none;
+        }
+        #leo-progress-track {
+            width: 100%;
+            height: 3px;
+            background: rgba(0, 0, 0, 0.06);
+        }
+        #leo-progress-fill {
+            height: 3px;
+            width: 0%;
+            background: var(--leo-accent, #007AFF);
+            transition: width 0.3s ease;
+        }
     </style>
 </head>
 <body>
@@ -47,6 +82,15 @@
         <div id="loading">Loading book...</div>
         <div id="error"></div>
     </div>
+
+    <!-- Progress bar — sits above the reader container -->
+    <div id="leo-progress-bar-container">
+        <span id="leo-progress-label"></span>
+        <div id="leo-progress-track">
+            <div id="leo-progress-fill"></div>
+        </div>
+    </div>
+
     <script type="module" src="reader.js"></script>
 </body>
 </html>

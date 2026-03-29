@@ -1,6 +1,14 @@
 import SwiftUI
 import WebKit
 
+/// Represents a single entry in the book's table of contents.
+struct TOCItem: Identifiable, Sendable {
+    let id = UUID()
+    let label: String
+    let href: String
+    let depth: Int
+}
+
 /// Values mirrored from Settings → Reading (`@AppStorage`), pushed into foliate `reader.js`.
 struct LeoReadingChromePreferences: Equatable {
     var fontSize: Double
@@ -11,7 +19,7 @@ struct LeoReadingChromePreferences: Equatable {
 
     static let defaultPrefs = LeoReadingChromePreferences(
         fontSize: 18,
-        lineHeight: 1.8,
+        lineHeight: 1.7,
         textDirection: "horizontal",
         showPinyin: false,
         showHighlights: true
@@ -46,6 +54,12 @@ struct FoliateReaderView: NSViewRepresentable {
     /// Indicates whether the word already has an FSRS review card.
     let hasReviewCardForWord: (String) -> Bool
 
+    /// Optional callback invoked when the TOC is fetched from JS.
+    var onTOCLoaded: (([TOCItem]) -> Void)?
+
+    /// Optional callback that delivers the Coordinator to the caller once the WKWebView is set up.
+    var onCoordinatorReady: ((Coordinator) -> Void)?
+
     enum PopupAction {
         case markKnown
         case addToSRS
@@ -61,6 +75,7 @@ struct FoliateReaderView: NSViewRepresentable {
             onPopupAction: onPopupAction,
             familiarityForWord: familiarityForWord,
             hasReviewCardForWord: hasReviewCardForWord,
+            onTOCLoaded: onTOCLoaded,
             shouldAutoAdvanceForUITest: ProcessInfo.processInfo.environment["LEO_UI_TEST_AUTO_ADVANCE_PAGE"] == "1"
         )
     }
@@ -99,6 +114,7 @@ struct FoliateReaderView: NSViewRepresentable {
         context.coordinator.latestTheme = theme
         context.coordinator.latestReading = readingChrome
         context.coordinator.initialLocator = initialLocator
+        onCoordinatorReady?(context.coordinator)
         return webView
     }
 
@@ -139,6 +155,7 @@ struct FoliateReaderView: NSViewRepresentable {
         let onPopupAction: (PopupAction, String) -> Void
         let familiarityForWord: (String) -> FamiliarityState
         let hasReviewCardForWord: (String) -> Bool
+        let onTOCLoaded: (([TOCItem]) -> Void)?
         let shouldAutoAdvanceForUITest: Bool
         weak var webView: WKWebView?
         var bookId: String = ""
@@ -158,6 +175,7 @@ struct FoliateReaderView: NSViewRepresentable {
             onPopupAction: @escaping (PopupAction, String) -> Void,
             familiarityForWord: @escaping (String) -> FamiliarityState,
             hasReviewCardForWord: @escaping (String) -> Bool,
+            onTOCLoaded: (([TOCItem]) -> Void)?,
             shouldAutoAdvanceForUITest: Bool
         ) {
             self.initialLocator = initialLocator
@@ -168,7 +186,48 @@ struct FoliateReaderView: NSViewRepresentable {
             self.onPopupAction = onPopupAction
             self.familiarityForWord = familiarityForWord
             self.hasReviewCardForWord = hasReviewCardForWord
+            self.onTOCLoaded = onTOCLoaded
             self.shouldAutoAdvanceForUITest = shouldAutoAdvanceForUITest
+        }
+
+        /// Fetches the TOC from JS and delivers it via `onTOCLoaded`.
+        /// Called by ReaderView when the user opens the TOC panel.
+        func requestTOC() {
+            guard let wv = webView else { return }
+            wv.evaluateJavaScript("JSON.stringify(window.getTableOfContents())") { [weak self] result, error in
+                guard let self else { return }
+                if let error {
+                    NSLog("[Leo Bridge] requestTOC error: \(error)")
+                    return
+                }
+                guard let jsonString = result as? String,
+                      let data = jsonString.data(using: .utf8),
+                      let rawItems = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
+                else {
+                    NSLog("[Leo Bridge] requestTOC: unexpected result \(String(describing: result))")
+                    return
+                }
+                let items = rawItems.compactMap { d -> TOCItem? in
+                    guard let label = d["label"] as? String,
+                          let href = d["href"] as? String else { return nil }
+                    let depth = d["depth"] as? Int ?? 0
+                    return TOCItem(label: label, href: href, depth: depth)
+                }
+                DispatchQueue.main.async {
+                    self.onTOCLoaded?(items)
+                }
+            }
+        }
+
+        /// Navigates the reader to a TOC item by href.
+        func goToTocItem(_ href: String) {
+            guard let encoded = try? JSONSerialization.data(withJSONObject: href),
+                  let literal = String(data: encoded, encoding: .utf8) else { return }
+            webView?.evaluateJavaScript("window.goToTocItem(\(literal))") { _, error in
+                if let error {
+                    NSLog("[Leo Bridge] goToTocItem error: \(error)")
+                }
+            }
         }
 
         // JS → Swift messages
@@ -220,6 +279,7 @@ struct FoliateReaderView: NSViewRepresentable {
                 let word = parser.resolveWordAtPosition(context: context, charIndex: charIndex)
                 let entries = DictionaryEngine.shared.lookup(word)
                 let freqData = FrequencyEngine.shared.lookup(word)
+                let grammarPatterns = GrammarEngine.shared.lookup(word: word)
 
                 NSLog("[Leo Bridge] Resolved word='\(word)', \(entries.count) entries")
 
@@ -240,6 +300,7 @@ struct FoliateReaderView: NSViewRepresentable {
                     entries: entries,
                     freqData: freqData,
                     familiarity: familiarity,
+                    grammarPatterns: grammarPatterns,
                     x: x,
                     y: y
                 )
@@ -288,6 +349,7 @@ struct FoliateReaderView: NSViewRepresentable {
             entries: [DictionaryEngine.Entry],
             freqData: FrequencyEngine.FrequencyData,
             familiarity: FamiliarityState,
+            grammarPatterns: [GrammarEngine.GrammarPattern]?,
             x: CGFloat,
             y: CGFloat
         ) {
@@ -305,6 +367,18 @@ struct FoliateReaderView: NSViewRepresentable {
             ]
             if let hsk = freqData.hskLevel {
                 popupData["hskLevel"] = hsk
+            }
+            // Include up to 2 matching grammar patterns in popup data
+            if let patterns = grammarPatterns, !patterns.isEmpty {
+                let grammarPayload: [[String: Any]] = patterns.prefix(2).map { p in
+                    [
+                        "title": p.title,
+                        "level": p.level,
+                        "structure": p.structure,
+                        "description": String(p.description.prefix(200)),
+                    ]
+                }
+                popupData["grammar"] = grammarPayload
             }
 
             guard let jsonData = try? JSONSerialization.data(withJSONObject: popupData),

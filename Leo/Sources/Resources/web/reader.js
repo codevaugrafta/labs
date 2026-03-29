@@ -45,6 +45,10 @@ view.addEventListener('relocate', e => {
             cfi = view.lastLocation?.cfi ?? ''
         }
     }
+
+    // Update progress bar
+    updateProgressBar(fraction, tocItem?.label ?? '')
+
     postToSwift('relocate', {
         fraction: fraction,
         cfi: cfi?.toString?.() ?? String(cfi ?? ''),
@@ -65,7 +69,7 @@ view.addEventListener('draw-annotation', e => {
 window._leoLastTheme = { bg: '#FFFFFF', fg: '#1A1A1A' }
 window._leoLastPrefs = {
     fontSizePt: 18,
-    lineHeight: 1.8,
+    lineHeight: 1.7,
     textDirection: 'horizontal',
     showPinyin: false,
     showHighlights: true,
@@ -73,7 +77,7 @@ window._leoLastPrefs = {
 window.__leoShowHighlights = true
 window.__leoShowPinyin = false
 
-const LEO_FONT_STACK = '"PingFang SC", "Hiragino Sans GB", "Source Han Serif SC", "Noto Serif SC", sans-serif'
+const LEO_FONT_STACK = '"Source Han Serif SC", "Noto Serif SC", "PingFang SC", "Hiragino Sans GB", serif'
 
 function buildLeoReaderBodyCSS() {
     const t = window._leoLastTheme
@@ -219,6 +223,16 @@ window.setTheme = function(themeP) {
     document.documentElement.style.setProperty('--bg', bg)
     document.documentElement.style.setProperty('--fg', fg)
     document.body.style.background = bg
+
+    // Derive accent color per theme: sepia uses warm amber, dark uses a
+    // softer blue, light uses the system blue.
+    const accent = themeP.accent ?? (
+        bg === '#1E1E1E' ? '#4CA6FF' :
+        bg === '#F5EDDC' ? '#B87333' :
+        '#007AFF'
+    )
+    document.documentElement.style.setProperty('--leo-accent', accent)
+
     pushLeoReaderStyles()
 }
 
@@ -566,6 +580,104 @@ window.showPopup = function(x, y, data) {
     }
     popup.appendChild(defsSection)
 
+    // --- Grammar patterns ---
+    const grammarPatterns = data.grammar
+    if (Array.isArray(grammarPatterns) && grammarPatterns.length > 0) {
+        const grammarSection = document.createElement('div')
+        grammarSection.id = 'leo-grammar'
+        Object.assign(grammarSection.style, {
+            borderTop: '1px solid rgba(255,255,255,.1)',
+            paddingTop: '8px',
+            marginBottom: '10px',
+        })
+
+        const grammarLabel = document.createElement('div')
+        grammarLabel.textContent = 'Grammar'
+        Object.assign(grammarLabel.style, {
+            fontSize: '10px',
+            fontWeight: '700',
+            letterSpacing: '0.06em',
+            textTransform: 'uppercase',
+            color: 'rgba(200,220,255,0.55)',
+            marginBottom: '6px',
+        })
+        grammarSection.appendChild(grammarLabel)
+
+        for (const pat of grammarPatterns) {
+            const card = document.createElement('div')
+            Object.assign(card.style, {
+                background: 'rgba(255,255,255,0.05)',
+                borderRadius: '8px',
+                padding: '7px 10px',
+                marginBottom: '6px',
+            })
+
+            // Level badge + title row
+            const titleRow = document.createElement('div')
+            Object.assign(titleRow.style, {
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                marginBottom: '4px',
+            })
+
+            const levelBadge = document.createElement('span')
+            levelBadge.textContent = pat.level ?? ''
+            const levelColor = _grammarLevelColor(pat.level)
+            Object.assign(levelBadge.style, {
+                fontSize: '10px',
+                fontWeight: '700',
+                padding: '1px 6px',
+                borderRadius: '20px',
+                background: levelColor + '22',
+                color: levelColor,
+                border: '1px solid ' + levelColor + '44',
+                flexShrink: '0',
+            })
+            titleRow.appendChild(levelBadge)
+
+            const titleEl = document.createElement('span')
+            titleEl.textContent = pat.title ?? ''
+            Object.assign(titleEl.style, {
+                fontSize: '12px',
+                fontWeight: '500',
+                color: 'rgba(242,242,247,0.9)',
+            })
+            titleRow.appendChild(titleEl)
+            card.appendChild(titleRow)
+
+            // Structure line
+            if (pat.structure) {
+                const structEl = document.createElement('div')
+                structEl.textContent = pat.structure
+                Object.assign(structEl.style, {
+                    fontSize: '12px',
+                    color: '#FF9F0A',
+                    fontFamily: 'ui-monospace, monospace',
+                    marginTop: '2px',
+                })
+                card.appendChild(structEl)
+            }
+
+            // Short description
+            if (pat.description) {
+                const descEl = document.createElement('div')
+                descEl.textContent = pat.description
+                Object.assign(descEl.style, {
+                    fontSize: '11.5px',
+                    color: 'rgba(242,242,247,0.55)',
+                    marginTop: '4px',
+                    lineHeight: '1.4',
+                })
+                card.appendChild(descEl)
+            }
+
+            grammarSection.appendChild(card)
+        }
+
+        popup.appendChild(grammarSection)
+    }
+
     // --- Action buttons ---
     const actions = document.createElement('div')
     Object.assign(actions.style, {
@@ -698,6 +810,80 @@ function hidePopup() {
     if (_activePopup) {
         _activePopup.remove()
         _activePopup = null
+    }
+}
+
+// Returns a hex color for a CEFR/HSK level badge in the grammar section.
+function _grammarLevelColor(level) {
+    switch (level) {
+        case 'A1': return '#22c55e'  // green
+        case 'A2': return '#3b82f6'  // blue
+        case 'B1': return '#8b5cf6'  // purple
+        case 'B2': return '#f59e0b'  // amber
+        case 'C1': return '#ef4444'  // red
+        case 'C2': return '#ec4899'  // pink
+        default:   return '#6b7280'  // gray
+    }
+}
+
+// --- PROGRESS BAR ---
+
+function updateProgressBar(fraction, chapterTitle) {
+    const fill = document.getElementById('leo-progress-fill')
+    const label = document.getElementById('leo-progress-label')
+    if (!fill || !label) return
+
+    const pct = Math.max(0, Math.min(1, fraction ?? 0))
+    fill.style.width = (pct * 100).toFixed(2) + '%'
+
+    const pctText = Math.round(pct * 100) + '%'
+    if (chapterTitle) {
+        label.textContent = chapterTitle + ' · ' + pctText
+    } else {
+        label.textContent = pctText
+    }
+    label.style.display = 'block'
+}
+
+// --- TABLE OF CONTENTS ---
+
+/**
+ * Returns a flat array of TOC items: [{ label, href, depth }, ...].
+ * Depth is 0 for top-level entries, 1 for nested, etc.
+ * Called by Swift after book load to populate the TOC panel.
+ */
+window.getTableOfContents = function() {
+    const toc = view.book?.toc
+    if (!toc) return []
+
+    function flattenToc(items, depth) {
+        const result = []
+        for (const item of items) {
+            result.push({
+                label: item.label ?? item.title ?? '',
+                href: item.href ?? '',
+                depth: depth,
+            })
+            if (item.subitems?.length) {
+                result.push(...flattenToc(item.subitems, depth + 1))
+            }
+        }
+        return result
+    }
+
+    return flattenToc(toc, 0)
+}
+
+/**
+ * Navigate to a TOC entry by href.
+ * Called by Swift when the user selects a chapter in the TOC panel.
+ */
+window.goToTocItem = function(href) {
+    if (!href) return
+    try {
+        view.goTo(href)
+    } catch (err) {
+        postToSwift('error', { message: err.message, source: 'goToTocItem' })
     }
 }
 

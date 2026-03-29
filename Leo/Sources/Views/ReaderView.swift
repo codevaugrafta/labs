@@ -2,6 +2,12 @@ import SwiftUI
 import WebKit
 import PDFKit
 
+// Lightweight reference-type bridge so ReaderView can call back into the WKWebView
+// coordinator without needing to hold a strong retain cycle or use a global.
+final class ReaderCoordinatorBridge: ObservableObject {
+    weak var coordinator: FoliateReaderView.Coordinator?
+}
+
 struct ReaderView: View {
     let book: Book
     @State private var theme: ReadingTheme = .light
@@ -14,11 +20,17 @@ struct ReaderView: View {
     @EnvironmentObject private var runtime: LeoRuntime
 
     @AppStorage("leo.fontSize") private var readingFontSize = 18.0
-    @AppStorage("leo.lineHeight") private var readingLineHeight = 1.8
+    @AppStorage("leo.lineHeight") private var readingLineHeight = 1.7
     @AppStorage("leo.showPinyin") private var readingShowPinyin = false
     @AppStorage("leo.showHighlights") private var readingShowHighlights = true
     @AppStorage("leo.textDirection") private var readingTextDirection = "horizontal"
     @State private var showReadingChromePopover = false
+
+    // TOC state
+    @State private var showTOCPanel = false
+    @State private var tocItems: [TOCItem] = []
+    @StateObject private var coordinatorBridge = ReaderCoordinatorBridge()
+
     /// UI tests: when `LEO_UI_TEST_SHOW_LOOKUP` is set, surface dictionary text for AX (not from WKWebView).
     @State private var uiTestDictionarySummary: String?
     @State private var uiTestLocatorSummary: String?
@@ -58,6 +70,12 @@ struct ReaderView: View {
                         hasReviewCardForWord: { word in
                             let fsrs = FSRSEngine(modelContext: modelContext)
                             return fsrs.card(for: word) != nil
+                        },
+                        onTOCLoaded: { items in
+                            tocItems = items
+                        },
+                        onCoordinatorReady: { coord in
+                            coordinatorBridge.coordinator = coord
                         }
                     )
                 }
@@ -123,6 +141,25 @@ struct ReaderView: View {
             }
 
             if book.format != .pdf {
+                // TOC button
+                ToolbarItem(placement: .automatic) {
+                    Button {
+                        // Fetch TOC from JS (populates tocItems via onTOCLoaded callback),
+                        // then show the panel.
+                        coordinatorBridge.coordinator?.requestTOC()
+                        showTOCPanel = true
+                    } label: {
+                        Label("Table of Contents", systemImage: "list.bullet.indent")
+                    }
+                    .accessibilityIdentifier("leo.toolbar.toc")
+                    .popover(isPresented: $showTOCPanel, arrowEdge: .bottom) {
+                        TOCPanelView(items: tocItems) { href in
+                            showTOCPanel = false
+                            coordinatorBridge.coordinator?.goToTocItem(href)
+                        }
+                    }
+                }
+
                 ToolbarItem(placement: .automatic) {
                     Button {
                         showReadingChromePopover.toggle()
@@ -201,6 +238,7 @@ struct ReaderView: View {
             await Task.detached(priority: .userInitiated) {
                 DictionaryEngine.shared.load()
                 FrequencyEngine.shared.load()
+                GrammarEngine.shared.load()
             }.value
             familiarityTracker = FamiliarityTracker(modelContext: modelContext)
             sessionEngine.configure(modelContext: modelContext)
@@ -381,5 +419,75 @@ private struct ReaderFailureView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color(nsColor: .textBackgroundColor))
         .accessibilityIdentifier("leo.reader.failure")
+    }
+}
+
+// MARK: - TOC Panel
+
+private struct TOCPanelView: View {
+    let items: [TOCItem]
+    let onSelect: (String) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Text("Contents")
+                    .font(.headline)
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+
+            Divider()
+
+            if items.isEmpty {
+                VStack(spacing: 8) {
+                    Image(systemName: "list.bullet.indent")
+                        .font(.system(size: 28))
+                        .foregroundStyle(.tertiary)
+                    Text("No table of contents")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .padding()
+            } else {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(items) { item in
+                            Button {
+                                onSelect(item.href)
+                            } label: {
+                                HStack(spacing: 0) {
+                                    // Indent nested entries
+                                    if item.depth > 0 {
+                                        Color.clear
+                                            .frame(width: CGFloat(item.depth) * 16, height: 1)
+                                    }
+                                    Text(item.label.isEmpty ? "Untitled" : item.label)
+                                        .font(item.depth == 0 ? .body : .subheadline)
+                                        .fontWeight(item.depth == 0 ? .medium : .regular)
+                                        .foregroundStyle(item.depth == 0 ? .primary : .secondary)
+                                        .lineLimit(2)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 9)
+                                .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(item.label)
+
+                            if item.depth == 0 {
+                                Divider()
+                                    .padding(.leading, 16)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .frame(minWidth: 260, idealWidth: 280, maxWidth: 320, minHeight: 200, idealHeight: 400)
+        .accessibilityIdentifier("leo.toc.panel")
     }
 }
