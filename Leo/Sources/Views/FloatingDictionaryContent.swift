@@ -18,7 +18,7 @@ struct DictionaryLookupData: Sendable {
 // MARK: - Content view
 
 /// SwiftUI content hosted inside FloatingDictionaryPanel.
-/// Design: macOS Dictionary.app feel — compact, native, non-intrusive.
+/// Design: macOS Dictionary.app — solid background, clean typography, native feel.
 struct FloatingDictionaryContent: View {
 
     let data: DictionaryLookupData
@@ -28,112 +28,94 @@ struct FloatingDictionaryContent: View {
     let onDismiss: () -> Void
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            VisualEffectBackground()
-
-            VStack(alignment: .leading, spacing: 0) {
-                // MARK: Header row — word + HSK badge
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Text(data.word)
-                        .font(.system(size: 24, weight: .semibold))
-                        .foregroundStyle(.primary)
-                        .textSelection(.enabled)
-
-                    if !data.pinyin.isEmpty {
-                        Text(data.pinyin)
-                            .font(.system(size: 15, weight: .regular))
-                            .foregroundStyle(Color(hex: "#f97316")) // orange-500
-                    }
-
-                    Spacer()
-
-                    if let hsk = data.hskLevel {
-                        HSKBadge(level: hsk)
-                    }
-                }
-                .padding(.top, 14)
-                .padding(.horizontal, 16)
-
-                Divider()
-                    .padding(.top, 10)
-                    .padding(.horizontal, 16)
-
-                // MARK: Primary definition
-                Text(data.primaryDefinition)
-                    .font(.system(size: 13, weight: .regular))
+        VStack(alignment: .leading, spacing: 0) {
+            // MARK: Header — word + pinyin + HSK badge
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(data.word)
+                    .font(.system(size: 28, weight: .bold, design: .serif))
                     .foregroundStyle(.primary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.top, 10)
-                    .padding(.horizontal, 16)
+                    .textSelection(.enabled)
 
-                // MARK: Grammar note
-                if let grammarTitle = data.grammarTitle,
-                   let grammarLevel = data.grammarLevel {
-                    HStack(spacing: 4) {
-                        Image(systemName: "text.book.closed")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary)
-                        Text("\(grammarLevel) · \(grammarTitle)")
-                            .font(.system(size: 11, weight: .regular))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                    }
-                    .padding(.top, 7)
-                    .padding(.horizontal, 16)
+                if !data.pinyin.isEmpty {
+                    Text(data.pinyin)
+                        .font(.system(size: 15, weight: .regular))
+                        .foregroundStyle(.orange)
                 }
 
-                // MARK: Familiarity indicator
-                FamiliarityPill(state: data.familiarity)
-                    .padding(.top, 8)
-                    .padding(.horizontal, 16)
+                Spacer()
 
-                Divider()
-                    .padding(.top, 10)
-                    .padding(.horizontal, 16)
-
-                // MARK: Action buttons
-                HStack(spacing: 8) {
-                    if data.familiarity != .known {
-                        ActionButton(
-                            label: "Know",
-                            icon: "checkmark.circle.fill",
-                            color: Color(hex: "#22c55e"),
-                            action: onKnow
-                        )
-                    }
-
-                    if !data.alreadyInReview {
-                        ActionButton(
-                            label: "Review",
-                            icon: "arrow.clockwise.circle.fill",
-                            color: Color(hex: "#3b82f6"),
-                            action: onReview
-                        )
-                    } else {
-                        Text("In review")
-                            .font(.system(size: 11, weight: .regular))
-                            .foregroundStyle(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-
-                    Spacer()
-
-                    Button(action: onListen) {
-                        Image(systemName: "speaker.wave.2.fill")
-                            .font(.system(size: 13))
-                            .foregroundStyle(.secondary)
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("Listen")
-                    .help("Listen to pronunciation")
+                if let hsk = data.hskLevel {
+                    HSKBadge(level: hsk)
                 }
-                .padding(.top, 10)
-                .padding(.horizontal, 16)
-                .padding(.bottom, 14)
             }
+            .padding(.top, 16)
+            .padding(.horizontal, 18)
+
+            // MARK: Primary definition
+            Text(data.primaryDefinition)
+                .font(.system(size: 14))
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.top, 8)
+                .padding(.horizontal, 18)
+
+            // MARK: Grammar note
+            if let grammarTitle = data.grammarTitle,
+               let grammarLevel = data.grammarLevel {
+                HStack(spacing: 4) {
+                    Image(systemName: "text.book.closed")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.tertiary)
+                    Text("\(grammarLevel) · \(grammarTitle)")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+                .padding(.top, 6)
+                .padding(.horizontal, 18)
+            }
+
+            // MARK: Familiarity
+            FamiliarityPill(state: data.familiarity)
+                .padding(.top, 6)
+                .padding(.horizontal, 18)
+
+            Divider()
+                .padding(.top, 10)
+                .padding(.horizontal, 14)
+
+            // MARK: Actions
+            HStack(spacing: 10) {
+                if data.familiarity != .known {
+                    ActionButton(label: "Know", icon: "checkmark", tint: .green, action: onKnow)
+                }
+
+                if !data.alreadyInReview {
+                    ActionButton(label: "Review", icon: "arrow.clockwise", tint: .blue, action: onReview)
+                } else {
+                    Text("In review")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+
+                Spacer()
+
+                Button(action: onListen) {
+                    Image(systemName: "speaker.wave.2.fill")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+                .help("Listen")
+            }
+            .padding(.top, 8)
+            .padding(.horizontal, 18)
+            .padding(.bottom, 14)
         }
-        .frame(width: 340)
+        .frame(width: 320)
         .fixedSize(horizontal: false, vertical: true)
+        .background(Color(nsColor: .controlBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 }
 
@@ -153,9 +135,9 @@ private struct HSKBadge: View {
 
     private var badgeColor: Color {
         switch level {
-        case 1...3: Color(hex: "#22c55e")  // green — foundational
-        case 4...6: Color(hex: "#3b82f6")  // blue — intermediate
-        default:    Color(hex: "#8b5cf6")  // purple — advanced
+        case 1...3: .green
+        case 4...6: .blue
+        default:    .purple
         }
     }
 }
@@ -167,7 +149,7 @@ private struct FamiliarityPill: View {
         HStack(spacing: 4) {
             Circle()
                 .fill(stateColor)
-                .frame(width: 7, height: 7)
+                .frame(width: 6, height: 6)
             Text(state.label)
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
@@ -176,11 +158,11 @@ private struct FamiliarityPill: View {
 
     private var stateColor: Color {
         switch state {
-        case .unknown:  Color(hex: "#ef4444")
-        case .seen:     Color(hex: "#f97316")
-        case .learning: Color(hex: "#eab308")
-        case .familiar: Color(hex: "#6b7280")
-        case .known:    Color(hex: "#22c55e")
+        case .unknown:  .red
+        case .seen:     .orange
+        case .learning: .yellow
+        case .familiar: .gray
+        case .known:    .green
         }
     }
 }
@@ -188,37 +170,22 @@ private struct FamiliarityPill: View {
 private struct ActionButton: View {
     let label: String
     let icon: String
-    let color: Color
+    let tint: Color
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 4) {
+            HStack(spacing: 3) {
                 Image(systemName: icon)
-                    .font(.system(size: 12))
+                    .font(.system(size: 11, weight: .medium))
                 Text(label)
                     .font(.system(size: 12, weight: .medium))
             }
-            .foregroundStyle(color)
+            .foregroundStyle(tint)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
-            .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 6))
+            .background(tint.opacity(0.1), in: RoundedRectangle(cornerRadius: 6))
         }
         .buttonStyle(.plain)
     }
-}
-
-// MARK: - NSVisualEffectView wrapper
-
-/// Wraps NSVisualEffectView with `.hudWindow` material for a native glassmorphism background.
-private struct VisualEffectBackground: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = .hudWindow
-        view.blendingMode = .behindWindow
-        view.state = .active
-        return view
-    }
-
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }

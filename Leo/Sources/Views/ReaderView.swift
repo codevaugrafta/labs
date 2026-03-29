@@ -346,6 +346,21 @@ struct ReaderView: View {
             }
             refreshUITestState()
         }
+        .onChange(of: ttsEngine.currentWordRange) { _, newRange in
+            guard usesFoliateReader else { return }
+            if let range = newRange {
+                coordinatorBridge.coordinator?.highlightSpeakingRange(
+                    text: lastReadAloudSnippet,
+                    range: range
+                )
+            } else {
+                coordinatorBridge.coordinator?.clearSpeakingHighlight()
+            }
+        }
+        .onChange(of: ttsEngine.isPlaying) { _, playing in
+            guard usesFoliateReader, !playing else { return }
+            coordinatorBridge.coordinator?.clearSpeakingHighlight()
+        }
         .onReceive(NotificationCenter.default.publisher(for: .leoPlayTTS)) { note in
             guard let word = note.object as? String, !word.isEmpty else { return }
             Task { await playWordTTS(word: word) }

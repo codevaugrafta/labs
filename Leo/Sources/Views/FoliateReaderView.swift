@@ -250,6 +250,28 @@ struct FoliateReaderView: NSViewRepresentable {
             }
         }
 
+        // MARK: - Speaking highlight (TTS karaoke)
+
+        /// Sends the currently-spoken word range to JS so it can apply the
+        /// `.leo-speaking` pulse animation. Uses the same JSON-array escaping
+        /// pattern as the `highlightRange` call to avoid injection issues.
+        func highlightSpeakingRange(text: String, range: NSRange) {
+            guard let textJSON = try? JSONSerialization.data(withJSONObject: [text]),
+                  let textArr = String(data: textJSON, encoding: .utf8) else {
+                NSLog("[Leo Bridge] highlightSpeakingRange: failed to serialize text")
+                return
+            }
+            // Extract the escaped string from the JSON array: ["escaped"] → "escaped"
+            let textLiteral = String(textArr.dropFirst().dropLast())
+            let js = "highlightSpeakingWord(\(textLiteral), \(range.location), \(range.length))"
+            webView?.evaluateJavaScript(js, completionHandler: nil)
+        }
+
+        /// Removes all speaking highlights from the JS side.
+        func clearSpeakingHighlight() {
+            webView?.evaluateJavaScript("clearSpeakingHighlight()", completionHandler: nil)
+        }
+
         // JS → Swift messages
         func userContentController(
             _ userContentController: WKUserContentController,
@@ -330,11 +352,14 @@ struct FoliateReaderView: NSViewRepresentable {
                 }
 
                 // Tell JS to highlight the resolved expression in the text.
-                // Uses JSONSerialization to safely escape context and word for JS.
-                if let contextJSON = try? JSONSerialization.data(withJSONObject: context),
-                   let contextLiteral = String(data: contextJSON, encoding: .utf8),
-                   let wordJSON = try? JSONSerialization.data(withJSONObject: word),
-                   let wordLiteral = String(data: wordJSON, encoding: .utf8) {
+                // Wrap strings in arrays for JSONSerialization (requires top-level Array/Dict).
+                if let contextJSON = try? JSONSerialization.data(withJSONObject: [context]),
+                   let contextArr = String(data: contextJSON, encoding: .utf8),
+                   let wordJSON = try? JSONSerialization.data(withJSONObject: [word]),
+                   let wordArr = String(data: wordJSON, encoding: .utf8) {
+                    // Extract the escaped string from the JSON array: ["escaped"] → "escaped"
+                    let contextLiteral = String(contextArr.dropFirst().dropLast()) // remove [ ]
+                    let wordLiteral = String(wordArr.dropFirst().dropLast())
                     let highlightJS = "highlightRange(\(contextLiteral), \(wordLiteral), \(charIndex))"
                     DispatchQueue.main.async {
                         self.webView?.evaluateJavaScript(highlightJS) { _, error in
@@ -413,19 +438,10 @@ struct FoliateReaderView: NSViewRepresentable {
             webViewX: CGFloat,
             webViewY: CGFloat
         ) {
-            // Convert WKWebView-local point → screen coordinates.
-            // WKWebView reports coordinates in its own coordinate space (origin top-left).
-            // NSView uses a flipped coordinate system (origin bottom-left on screen).
-            let screenPoint: CGPoint
-            if let wv = webView {
-                // WKWebView's coordinate space has y=0 at top; NSView y=0 at bottom.
-                let viewHeight = wv.bounds.height
-                let nsViewPoint = CGPoint(x: webViewX, y: viewHeight - webViewY)
-                let windowPoint = wv.convert(nsViewPoint, to: nil)
-                screenPoint = wv.window?.convertPoint(toScreen: windowPoint) ?? CGPoint(x: webViewX, y: webViewY)
-            } else {
-                screenPoint = CGPoint(x: webViewX, y: webViewY)
-            }
+            // Use the actual mouse position for reliable panel placement.
+            // JS-reported coordinates go through iframe→outer page→WKWebView→NSView→screen
+            // conversions that are fragile. NSEvent.mouseLocation is always correct.
+            let screenPoint = NSEvent.mouseLocation
 
             let pinyin = showPinyin ? (entries.first?.pinyinDisplay ?? "") : ""
             let primaryDefinition = entries.first?.definitions.first ?? ""

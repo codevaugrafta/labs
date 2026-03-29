@@ -27,6 +27,8 @@ final class FloatingDictionaryController {
 
     private var panel: FloatingDictionaryPanel?
     private var hostingView: NSHostingView<FloatingDictionaryContent>?
+    private var clickOutsideMonitor: Any?
+    private var escapeMonitor: Any?
 
     private init() {}
 
@@ -52,12 +54,14 @@ final class FloatingDictionaryController {
             repositionPanel(newPanel, near: screenPoint)
             newPanel.orderFront(nil)
         }
+        installMonitors()
     }
 
     // MARK: - Dismiss
 
     func dismiss() {
         panel?.orderOut(nil)
+        removeMonitors()
     }
 
     // MARK: - Private helpers
@@ -107,6 +111,45 @@ final class FloatingDictionaryController {
             hosting.sizingOptions = [.preferredContentSize]
             self.hostingView = hosting
             panel.contentView = hosting
+        }
+    }
+
+    // MARK: - Click-outside & Escape monitors
+
+    private func installMonitors() {
+        removeMonitors()
+
+        // Dismiss when clicking outside the panel
+        clickOutsideMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
+            guard let self, let panel = self.panel, panel.isVisible else { return event }
+            // If the click landed inside the panel, let it through
+            let clickLocation = NSEvent.mouseLocation
+            if panel.frame.contains(clickLocation) {
+                return event
+            }
+            self.dismiss()
+            return event
+        }
+
+        // Dismiss on Escape key
+        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, let panel = self.panel, panel.isVisible else { return event }
+            if event.keyCode == 53 { // Escape
+                self.dismiss()
+                return nil // consume the event
+            }
+            return event
+        }
+    }
+
+    private func removeMonitors() {
+        if let monitor = clickOutsideMonitor {
+            NSEvent.removeMonitor(monitor)
+            clickOutsideMonitor = nil
+        }
+        if let monitor = escapeMonitor {
+            NSEvent.removeMonitor(monitor)
+            escapeMonitor = nil
         }
     }
 
