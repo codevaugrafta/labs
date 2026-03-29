@@ -80,6 +80,29 @@ struct ChineseParserTests {
         #expect(word == "不得不", "Expected 不得不, got \(word)")
     }
 
+    @Test("Expression-first: clicking 得 in 不得不 returns full expression")
+    func resolveExpressionFirst() {
+        DictionaryEngine.shared.load()
+        // charIndex: 0=我, 1=不, 2=得, 3=不, 4=去
+        let word = parser.resolveExpressionAtPosition(context: "我不得不去学校", charIndex: 2)
+        #expect(word == "不得不", "Expected expression 不得不, got \(word)")
+    }
+
+    @Test("Expression-first: clicking first char of 不得不 returns full expression")
+    func resolveExpressionFirstChar() {
+        DictionaryEngine.shared.load()
+        let word = parser.resolveExpressionAtPosition(context: "我不得不去学校", charIndex: 1)
+        #expect(word == "不得不", "Expected expression 不得不, got \(word)")
+    }
+
+    @Test("Expression-first: single word falls back to word segmentation")
+    func resolveExpressionFallback() {
+        DictionaryEngine.shared.load()
+        // 喜欢 is a 2-char word — expression detector should pick it up
+        let word = parser.resolveExpressionAtPosition(context: "我喜欢吃苹果", charIndex: 2)
+        #expect(word == "喜欢" || word.contains("喜欢"), "Expected 喜欢, got \(word)")
+    }
+
     @Test("Resolves single character at position 0")
     func resolveFirstChar() {
         DictionaryEngine.shared.load()

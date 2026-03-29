@@ -9,6 +9,9 @@ extension Notification.Name {
     static let leoAnkiImportResult = Notification.Name("leoAnkiImportResult")
     /// `object` is the PDF `Book`'s `UUID`; main window runs conversion.
     static let leoRequestPDFConvert = Notification.Name("leoRequestPDFConvert")
+    /// Posted by the Coordinator after OpenRouter enriches a word lookup.
+    /// `userInfo`: ["word": String, "context": String]
+    static let leoContextualDefinitionReady = Notification.Name("leoContextualDefinitionReady")
 }
 
 @main

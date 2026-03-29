@@ -147,7 +147,7 @@ struct AnkiSettingsTab: View {
 }
 
 struct TTSSettingsTab: View {
-    @AppStorage("leo.ttsPreferSystem") private var preferSystem = false
+    @AppStorage("leo.ttsPreferSystem") private var preferSystem = true
     @AppStorage("leo.ttsVoice") private var voiceId = "Dennis"
     @AppStorage("leo.ttsModel") private var model = "inworld-tts-1.5-max"
     @AppStorage("leo.ttsSpeed") private var speed = 1.0
@@ -178,7 +178,7 @@ struct TTSSettingsTab: View {
                 Slider(value: $speed, in: 0.5...2.0, step: 0.1) {
                     Text("Speed: \(speed, specifier: "%.1f")x")
                 }
-                Text("InWorld returns word-level timestamps for highlighting. macOS voices have no word sync.")
+                Text("InWorld returns word-level timestamps for highlighting. macOS voices also support word-level highlighting via AVSpeechSynthesizer.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Text("Leo stores the InWorld key in your macOS Keychain.")

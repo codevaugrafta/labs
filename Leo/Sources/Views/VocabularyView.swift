@@ -45,7 +45,7 @@ struct VocabularyView: View {
                     filterButton(nil, label: "All words", count: allVocab.count)
                     filterButton(.known, label: "Known", count: allVocab.filter { $0.state == .known }.count)
                     filterButton(.learning, label: "Studying", count: allVocab.filter { $0.state == .learning || $0.state == .familiar }.count)
-                    filterButton(.seen, label: "Seen", count: allVocab.filter { $0.state == .seen }.count)
+                    filterButton(.seen, label: "Encountered", count: allVocab.filter { $0.state == .seen }.count)
                     filterButton(.unknown, label: "New", count: allVocab.filter { $0.state == .unknown }.count)
                     Spacer()
                 }
@@ -142,7 +142,7 @@ struct VocabularyRow: View {
             Menu {
                 Button("Mark as known") { updateState(.known) }
                 Button("Set learning") { updateState(.learning) }
-                Button("Set seen") { updateState(.seen) }
+                Button("Mark as encountered") { updateState(.seen) }
                 Button("Reset to new") { updateState(.unknown) }
             } label: {
                 Image(systemName: "slider.horizontal.3")

@@ -293,9 +293,11 @@ struct FoliateReaderView: NSViewRepresentable {
                 let char = payload["char"] as? String ?? ""
                 NSLog("[Leo Bridge] Word tap: char=\(char), context=\(context.prefix(20))..., idx=\(charIndex)")
 
-                // Resolve word + look up dictionary on the calling thread (already main via WK)
+                // Resolve expression + look up dictionary on the calling thread (already main via WK)
+                // resolveExpressionAtPosition tries ExpressionDetector first (e.g. 不得不)
+                // then falls back to word segmentation.
                 let parser = ChineseParser()
-                let word = parser.resolveWordAtPosition(context: context, charIndex: charIndex)
+                let word = parser.resolveExpressionAtPosition(context: context, charIndex: charIndex)
                 let entries = DictionaryEngine.shared.lookup(word)
                 let freqData = FrequencyEngine.shared.lookup(word)
                 let grammarPatterns = GrammarEngine.shared.lookup(word: word)
@@ -307,22 +309,41 @@ struct FoliateReaderView: NSViewRepresentable {
                     self.onWordTapped(char, context, charIndex, x, y)
                 }
 
-                // Build popup data and call showPopup() in JS
+                // Show native floating panel — replaces the in-JS popup.
                 let familiarity = self.familiarityForWord(word)
-                let pinyinForPopup = self.latestReading.showPinyin
-                    ? (entries.first?.pinyinDisplay ?? "")
-                    : ""
-                showPopupInJS(
-                    word: word,
-                    pinyin: pinyinForPopup,
-                    context: context,
-                    entries: entries,
-                    freqData: freqData,
-                    familiarity: familiarity,
-                    grammarPatterns: grammarPatterns,
-                    x: x,
-                    y: y
-                )
+                let alreadyInReview = self.hasReviewCardForWord(word)
+                let showPinyin = self.latestReading.showPinyin
+
+                DispatchQueue.main.async {
+                    self.showNativePanel(
+                        word: word,
+                        entries: entries,
+                        grammarPatterns: grammarPatterns,
+                        freqData: freqData,
+                        familiarity: familiarity,
+                        alreadyInReview: alreadyInReview,
+                        showPinyin: showPinyin,
+                        context: context,
+                        webViewX: x,
+                        webViewY: y
+                    )
+                }
+
+                // Tell JS to highlight the resolved expression in the text.
+                // Uses JSONSerialization to safely escape context and word for JS.
+                if let contextJSON = try? JSONSerialization.data(withJSONObject: context),
+                   let contextLiteral = String(data: contextJSON, encoding: .utf8),
+                   let wordJSON = try? JSONSerialization.data(withJSONObject: word),
+                   let wordLiteral = String(data: wordJSON, encoding: .utf8) {
+                    let highlightJS = "highlightRange(\(contextLiteral), \(wordLiteral), \(charIndex))"
+                    DispatchQueue.main.async {
+                        self.webView?.evaluateJavaScript(highlightJS) { _, error in
+                            if let error {
+                                NSLog("[Leo Bridge] highlightRange JS error: \(error)")
+                            }
+                        }
+                    }
+                }
 
             case "popupAction":
                 let action = payload["action"] as? String ?? ""
@@ -376,68 +397,74 @@ struct FoliateReaderView: NSViewRepresentable {
             }
         }
 
-        // MARK: - In-JS popup
+        // MARK: - Native floating panel
 
-        private func showPopupInJS(
+        /// Converts WKWebView-local coordinates to screen coordinates and shows the
+        /// native FloatingDictionaryPanel near the tapped word.
+        private func showNativePanel(
             word: String,
-            pinyin: String,
-            context: String,
             entries: [DictionaryEngine.Entry],
+            grammarPatterns: [GrammarEngine.GrammarPattern]?,
             freqData: FrequencyEngine.FrequencyData,
             familiarity: FamiliarityState,
-            grammarPatterns: [GrammarEngine.GrammarPattern]?,
-            x: CGFloat,
-            y: CGFloat
+            alreadyInReview: Bool,
+            showPinyin: Bool,
+            context: String,
+            webViewX: CGFloat,
+            webViewY: CGFloat
         ) {
-            let definitions = entries.prefix(2).flatMap { $0.definitions.prefix(4) }
-            let alreadyInReview = hasReviewCardForWord(word)
-            var popupData: [String: Any] = [
-                "word": word,
-                "pinyin": pinyin,
-                "definitions": Array(definitions),
-                "frequencyTier": freqData.tier.rawValue,
-                "frequencyColor": freqData.tier.color,
-                "familiarityLabel": familiarity.label,
-                "canMarkKnown": familiarity != .known,
-                "alreadyInReview": alreadyInReview,
-            ]
-            if let hsk = freqData.hskLevel {
-                popupData["hskLevel"] = hsk
-            }
-            // Include up to 2 matching grammar patterns in popup data
-            if let patterns = grammarPatterns, !patterns.isEmpty {
-                let grammarPayload: [[String: Any]] = patterns.prefix(2).map { p in
-                    [
-                        "title": p.title,
-                        "level": p.level,
-                        "structure": p.structure,
-                        "description": String(p.description.prefix(200)),
-                    ]
-                }
-                popupData["grammar"] = grammarPayload
+            // Convert WKWebView-local point → screen coordinates.
+            // WKWebView reports coordinates in its own coordinate space (origin top-left).
+            // NSView uses a flipped coordinate system (origin bottom-left on screen).
+            let screenPoint: CGPoint
+            if let wv = webView {
+                // WKWebView's coordinate space has y=0 at top; NSView y=0 at bottom.
+                let viewHeight = wv.bounds.height
+                let nsViewPoint = CGPoint(x: webViewX, y: viewHeight - webViewY)
+                let windowPoint = wv.convert(nsViewPoint, to: nil)
+                screenPoint = wv.window?.convertPoint(toScreen: windowPoint) ?? CGPoint(x: webViewX, y: webViewY)
+            } else {
+                screenPoint = CGPoint(x: webViewX, y: webViewY)
             }
 
-            let jsonStr: String
-            do {
-                let jsonData = try JSONSerialization.data(withJSONObject: popupData)
-                guard let str = String(data: jsonData, encoding: .utf8) else {
-                    NSLog("[Leo Bridge] showPopupInJS: popup JSON not valid UTF-8 for word '\(word)'")
-                    return
-                }
-                jsonStr = str
-            } catch {
-                NSLog("[Leo Bridge] showPopupInJS: failed to serialize popup data for word '\(word)': \(error)")
-                return
+            let pinyin = showPinyin ? (entries.first?.pinyinDisplay ?? "") : ""
+            let primaryDefinition = entries.first?.definitions.first ?? ""
+
+            var grammarTitle: String?
+            var grammarLevel: String?
+            if let first = grammarPatterns?.first {
+                grammarTitle = first.title
+                grammarLevel = first.level
             }
 
-            let js = "showPopup(\(x), \(y), \(jsonStr))"
-            DispatchQueue.main.async {
-                self.webView?.evaluateJavaScript(js) { _, error in
-                    if let error {
-                        NSLog("[Leo Bridge] showPopup JS error: \(error)")
-                    }
+            let lookupData = DictionaryLookupData(
+                word: word,
+                pinyin: pinyin,
+                primaryDefinition: primaryDefinition,
+                hskLevel: freqData.hskLevel,
+                grammarTitle: grammarTitle,
+                grammarLevel: grammarLevel,
+                familiarity: familiarity,
+                alreadyInReview: alreadyInReview
+            )
+
+            FloatingDictionaryController.shared.show(
+                data: lookupData,
+                screenPoint: screenPoint,
+                onKnow: { [weak self] in
+                    guard let self else { return }
+                    self.onPopupAction(.markKnown, word)
+                    FloatingDictionaryController.shared.dismiss()
+                },
+                onReview: { [weak self] in
+                    guard let self else { return }
+                    self.onPopupAction(.addToSRS, word)
+                    FloatingDictionaryController.shared.dismiss()
+                },
+                onListen: {
+                    NotificationCenter.default.post(name: .leoPlayTTS, object: word)
                 }
-            }
+            )
 
             scheduleContextualLookup(word: word, sentence: context)
         }
@@ -448,6 +475,7 @@ struct FoliateReaderView: NSViewRepresentable {
 
             let model = UserDefaults.standard.string(forKey: "leo.lookupModel") ?? "qwen/qwen-2.5-72b-instruct"
             Task { [weak self] in
+                guard self != nil else { return }
                 do {
                     let text = try await OpenRouterLookupService.fetchContextualMeaning(
                         word: word,
@@ -455,24 +483,14 @@ struct FoliateReaderView: NSViewRepresentable {
                         apiKey: apiKey,
                         model: model
                     )
-                    let jsLiteral: String
-                    do {
-                        let encoded = try JSONSerialization.data(withJSONObject: text)
-                        guard let str = String(data: encoded, encoding: .utf8) else {
-                            NSLog("[Leo Bridge] scheduleContextualLookup: context JSON not valid UTF-8 for word '\(word)'")
-                            return
-                        }
-                        jsLiteral = str
-                    } catch {
-                        NSLog("[Leo Bridge] scheduleContextualLookup: failed to serialize context for word '\(word)': \(error)")
-                        return
-                    }
+                    // Post notification so any subscriber (e.g. a future contextual
+                    // definition pane) can consume the AI-enriched context.
                     await MainActor.run {
-                        self?.webView?.evaluateJavaScript("updatePopupContext(\(jsLiteral))") { _, error in
-                            if let error {
-                                NSLog("[Leo Bridge] updatePopupContext error: \(error)")
-                            }
-                        }
+                        NotificationCenter.default.post(
+                            name: .leoContextualDefinitionReady,
+                            object: nil,
+                            userInfo: ["word": word, "context": text]
+                        )
                     }
                 } catch {
                     NSLog("[Leo Bridge] OpenRouter: \(error.localizedDescription)")

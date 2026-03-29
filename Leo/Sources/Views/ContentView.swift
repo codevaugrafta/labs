@@ -571,7 +571,7 @@ struct LibrarySidebar: View {
             Section("Vocabulary") {
                 let known = vocabulary.filter { $0.state == .known }.count
                 let learning = vocabulary.filter { $0.state == .learning || $0.state == .familiar }.count
-                let tapped = vocabulary.filter { $0.state == .seen }.count
+                let newWords = vocabulary.filter { $0.state == .unknown }.count
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("\(known)")
@@ -592,10 +592,10 @@ struct LibrarySidebar: View {
                     }
                     Spacer()
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("\(tapped)")
+                        Text("\(newWords)")
                             .font(.title3.weight(.semibold))
-                            .foregroundStyle(.orange)
-                        Text("Tapped")
+                            .foregroundStyle(.red)
+                        Text("New")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }

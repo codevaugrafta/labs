@@ -342,6 +342,10 @@ struct ReaderView: View {
             }
             refreshUITestState()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .leoPlayTTS)) { note in
+            guard let word = note.object as? String, !word.isEmpty else { return }
+            Task { await playWordTTS(word: word) }
+        }
     }
 
     private var activeFailureMessage: String? {
@@ -395,6 +399,14 @@ struct ReaderView: View {
         let text = lastReadAloudSnippet.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         await ttsEngine.generate(text: text)
+        if ttsEngine.error == nil {
+            ttsEngine.play()
+        }
+    }
+
+    /// Triggered by the floating dictionary panel's Listen button via `.leoPlayTTS`.
+    private func playWordTTS(word: String) async {
+        await ttsEngine.generate(text: word)
         if ttsEngine.error == nil {
             ttsEngine.play()
         }

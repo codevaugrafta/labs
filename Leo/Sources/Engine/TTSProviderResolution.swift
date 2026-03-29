@@ -4,7 +4,7 @@ import Foundation
 enum LeoTTSBackend: String, Sendable, Equatable {
     /// InWorld REST API (word timestamps when available).
     case inWorld
-    /// macOS `AVSpeechSynthesizer` (free, on-device; no word timestamps).
+    /// macOS `AVSpeechSynthesizer` (free, on-device; word range via `willSpeakRangeOfSpeechString`).
     case systemSpeech
 }
 

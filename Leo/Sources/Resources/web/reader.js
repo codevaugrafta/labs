@@ -283,6 +283,150 @@ document.addEventListener('keydown', (e) => {
 window.nextPage = function() { window._rendererNext?.() }
 window.prevPage = function() { window._rendererPrev?.() }
 
+// --- EXPRESSION HIGHLIGHT ---
+// Tracks the <span> elements injected by highlightRange() so they can be
+// unwrapped when the popup is dismissed or a new word is tapped.
+let _highlightSpans = []
+let _highlightDoc = null   // the iframe document that owns the spans
+
+function _clearExpressionHighlight() {
+    for (const span of _highlightSpans) {
+        // Unwrap: replace <span class="leo-expression-highlight">X</span> with text node X.
+        const parent = span.parentNode
+        if (!parent) continue
+        while (span.firstChild) {
+            parent.insertBefore(span.firstChild, span)
+        }
+        parent.removeChild(span)
+        parent.normalize()
+    }
+    _highlightSpans = []
+    _highlightDoc = null
+}
+
+// Called by Swift after word/expression resolution.
+// Finds the resolved word in the iframe document using the same context string
+// that was sent to Swift, then wraps each character of the word in a highlight span.
+//
+// Strategy:
+//   1. Walk all text nodes in the active iframe document.
+//   2. Find the text node that contains `context` (or the longest prefix/suffix overlap).
+//   3. Within that text node, locate the offset where `word` starts (at charIndex - wordStart).
+//   4. Use DOM Range.surroundContents to wrap with a highlight span.
+window.highlightRange = function(context, word, charIndex) {
+    if (!word || word.length === 0) return
+
+    // Find the most recently loaded iframe doc — stored in _highlightDoc by injectClickHandlers.
+    const doc = _highlightDoc
+    if (!doc) return
+
+    _clearExpressionHighlight()
+
+    // Walk text nodes in the document to find one containing `context`.
+    // We look for a text node where at least the core portion of context appears.
+    // charIndex is the position of the clicked char within context.
+    const treeWalker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT)
+    let targetNode = null
+    let targetCharOffset = -1  // code-point offset within targetNode.textContent where word starts
+
+    // The word starts this many code points before charIndex in the context.
+    // context[charIndex] is the clicked char. The word may start before charIndex.
+    // We need to find where within the text node the word's first char falls.
+
+    const wordChars = Array.from(word)
+    const contextChars = Array.from(context)
+
+    // Find where word starts in the context string (by code-point index).
+    // The clicked char (charIndex) is somewhere within the word.
+    // Walk backwards from charIndex to find where the word starts.
+    let wordStartInContext = charIndex
+    while (wordStartInContext > 0 && contextChars[wordStartInContext - 1] !== undefined) {
+        const candidate = contextChars.slice(wordStartInContext, wordStartInContext + wordChars.length).join('')
+        if (candidate === word) break
+        wordStartInContext--
+    }
+    // Forward scan if backward scan overshot.
+    for (let i = Math.max(0, wordStartInContext); i <= charIndex; i++) {
+        const candidate = contextChars.slice(i, i + wordChars.length).join('')
+        if (candidate === word) {
+            wordStartInContext = i
+            break
+        }
+    }
+
+    // How many code points from the START of context to the start of word.
+    const prefixLen = wordStartInContext
+
+    while (treeWalker.nextNode()) {
+        const node = treeWalker.currentNode
+        const nodeChars = Array.from(node.textContent)
+
+        // Search for the context string inside this text node (code-point level).
+        // We only need a partial match: the text node must contain `word` at the
+        // correct relative position within `context`.
+        // Fast path: try indexOf with the full context first, then slide a window.
+        const joined = node.textContent
+        const contextStr = context
+
+        // Find all positions where the word appears in this text node.
+        // Then pick the one where the surrounding chars match the context prefix/suffix.
+        let searchFrom = 0
+        let found = false
+        while (!found) {
+            const idx = joined.indexOf(word, searchFrom)
+            if (idx === -1) break
+
+            // Convert UTF-16 idx to code-point index.
+            const cpsBefore = Array.from(joined.slice(0, idx))
+            const cpWordStart = cpsBefore.length
+
+            // Check that chars before the word in the text node match the context prefix.
+            const prefixInNode = nodeChars.slice(Math.max(0, cpWordStart - prefixLen), cpWordStart).join('')
+            const contextPrefix = contextChars.slice(0, prefixLen).join('')
+
+            // Accept if prefix matches (or context is at start of node so prefix may be shorter).
+            const prefixMatches = prefixInNode.endsWith(contextPrefix) || contextPrefix.endsWith(prefixInNode)
+
+            if (prefixMatches || prefixLen === 0) {
+                targetNode = node
+                targetCharOffset = cpWordStart
+                found = true
+            }
+            searchFrom = idx + word.length
+        }
+        if (found) break
+    }
+
+    if (!targetNode || targetCharOffset < 0) return
+
+    // Convert code-point offset to UTF-16 offset for DOM Range.
+    const nodeChars = Array.from(targetNode.textContent)
+    let utf16Start = 0
+    for (let i = 0; i < targetCharOffset; i++) {
+        utf16Start += nodeChars[i].length
+    }
+    let utf16End = utf16Start
+    for (let i = 0; i < wordChars.length; i++) {
+        utf16End += wordChars[i].length
+    }
+
+    // Wrap the range in highlight spans (one per char for vertical text compat,
+    // or just one span wrapping the whole word if the range is within one text node).
+    try {
+        const range = doc.createRange()
+        range.setStart(targetNode, utf16Start)
+        range.setEnd(targetNode, utf16End)
+
+        const span = doc.createElement('span')
+        span.className = 'leo-expression-highlight'
+        range.surroundContents(span)
+        _highlightSpans.push(span)
+    } catch (_) {
+        // surroundContents can fail if the range crosses element boundaries.
+        // In that case we skip the highlight silently — the popup still shows.
+    }
+}
+
 // --- CHINESE CHARACTER CLICK HANDLING ---
 
 // Returns true for CJK Unified Ideographs and common CJK extension blocks.
@@ -322,6 +466,27 @@ function injectNavigationHandlers(doc) {
 }
 
 function injectClickHandlers(doc, chapterIndex) {
+    // Store the active iframe document so highlightRange() can access it.
+    // Each chapter navigation replaces the doc — clear stale highlights first.
+    _clearExpressionHighlight()
+    _highlightDoc = doc
+
+    // Inject highlight CSS into this iframe's document.
+    if (!doc.getElementById('leo-highlight-styles')) {
+        const style = doc.createElement('style')
+        style.id = 'leo-highlight-styles'
+        style.textContent = `
+            .leo-expression-highlight {
+                border-bottom: 2px solid rgba(230, 126, 34, 0.6);
+                transition: border-color 0.2s ease;
+            }
+            .leo-expression-highlight:hover {
+                border-bottom-color: rgba(230, 126, 34, 0.9);
+            }
+        `
+        doc.head?.appendChild(style)
+    }
+
     // Also inject navigation
     injectNavigationHandlers(doc)
     doc.addEventListener('click', (event) => {
@@ -1002,7 +1167,9 @@ window.updatePopupContext = function(text) {
 }
 
 // Plays a brief fade-out animation then removes the popup.
+// Also removes any active expression highlight from the text.
 function hidePopup() {
+    _clearExpressionHighlight()
     if (!_activePopup) return
     const el = _activePopup
     _activePopup = null

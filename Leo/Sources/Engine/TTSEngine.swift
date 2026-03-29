@@ -7,6 +7,7 @@ final class TTSEngine: NSObject, ObservableObject {
     @Published var isPlaying = false
     @Published var isLoading = false
     @Published var currentWordIndex: Int = -1
+    @Published var currentWordRange: NSRange?
     @Published var error: String?
 
     private var audioPlayer: AVAudioPlayer?
@@ -42,7 +43,15 @@ final class TTSEngine: NSObject, ObservableObject {
         stopAllOutputs()
 
         let hasKey = getAPIKey() != nil
-        let preferSystem = UserDefaults.standard.bool(forKey: "leo.ttsPreferSystem")
+        // Default to true (system TTS) when the key has never been written — mirrors the
+        // @AppStorage default in TTSSettingsTab and avoids UserDefaults.bool returning false
+        // for a missing key.
+        let preferSystem: Bool
+        if UserDefaults.standard.object(forKey: "leo.ttsPreferSystem") != nil {
+            preferSystem = UserDefaults.standard.bool(forKey: "leo.ttsPreferSystem")
+        } else {
+            preferSystem = true
+        }
         let backend = TTSProviderResolution.resolveBackend(hasInWorldKey: hasKey, preferSystem: preferSystem)
         activeBackend = backend
 
@@ -168,6 +177,7 @@ final class TTSEngine: NSObject, ObservableObject {
         stopHighlightTimer()
         wordTimestamps = []
         currentWordIndex = -1
+        currentWordRange = nil
         systemUtterance = nil
     }
 
@@ -317,16 +327,28 @@ extension TTSEngine: AVAudioPlayerDelegate {
 }
 
 extension TTSEngine: AVSpeechSynthesizerDelegate {
+    nonisolated func speechSynthesizer(
+        _ synthesizer: AVSpeechSynthesizer,
+        willSpeakRangeOfSpeechString characterRange: NSRange,
+        utterance: AVSpeechUtterance
+    ) {
+        Task { @MainActor in
+            currentWordRange = characterRange
+        }
+    }
+
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
         Task { @MainActor in
             isPlaying = false
             currentWordIndex = -1
+            currentWordRange = nil
         }
     }
 
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
         Task { @MainActor in
             isPlaying = false
+            currentWordRange = nil
         }
     }
 }

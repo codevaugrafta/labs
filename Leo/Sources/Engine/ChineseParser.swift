@@ -103,6 +103,49 @@ struct ChineseParser: Sendable {
         return dictionaryWindowSearch(context: context, at: charIndex)
     }
 
+    /// Expression-first resolution: tries ExpressionDetector first (longest multi-word match),
+    /// then falls back to word segmentation.
+    ///
+    /// This is the preferred entry point for tap-to-define. Clicking 得 in 不得不 returns
+    /// 不得不 rather than 得.
+    func resolveExpressionAtPosition(context: String, charIndex: Int) -> String {
+        let chars = Array(context)
+        guard charIndex < chars.count else {
+            return resolveWordAtPosition(context: context, charIndex: charIndex)
+        }
+
+        // Run ExpressionDetector over the context window.
+        // Find the longest expression whose range covers charIndex.
+        let detector = ExpressionDetector()
+        let expressions = detector.detect(in: context)
+
+        // Map charIndex (code-point index) to String.Index in context.
+        let targetIndex = context.index(context.startIndex, offsetBy: charIndex, limitedBy: context.endIndex)
+            ?? context.endIndex
+
+        // Among all expressions covering the target character, prefer the longest.
+        var bestExpression: ExpressionDetector.Expression?
+        for expr in expressions {
+            guard expr.range.contains(targetIndex) || expr.range.lowerBound == targetIndex else { continue }
+            // Skip single-char grammar markers (把, 被) — they add no value over word lookup
+            if expr.type == .grammarPattern && expr.text.count == 1 { continue }
+            if let best = bestExpression {
+                if expr.text.count > best.text.count {
+                    bestExpression = expr
+                }
+            } else {
+                bestExpression = expr
+            }
+        }
+
+        if let expr = bestExpression, expr.text.count >= 2 {
+            return expr.text
+        }
+
+        // No multi-word expression covers this position — fall back to word segmentation.
+        return resolveWordAtPosition(context: context, charIndex: charIndex)
+    }
+
     // MARK: - Layer 1: NLTagger
 
     private func nlTaggerSegment(_ text: String) -> [Token] {
