@@ -17,7 +17,7 @@ chmod +x build/Tiempo.app/Contents/MacOS/Tiempo
 # Generate icon if not present
 if [ ! -f build/Tiempo.app/Contents/Resources/AppIcon.icns ]; then
     echo "Generating app icon..."
-    swift build/create-icon.swift
+    swift scripts/create-icon.swift
     iconutil -c icns build/AppIcon.iconset -o build/Tiempo.app/Contents/Resources/AppIcon.icns
 fi
 
