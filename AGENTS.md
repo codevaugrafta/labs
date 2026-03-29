@@ -54,6 +54,26 @@ This file is read by both Cursor and Claude Code agents.
 - **SDK docs alignment**: optional **Settings → Advanced → Environment** maps to `ConversationConfig.environment` (regional routing when ElevenLabs documents it). Debug builds use SDK **`.debug`** logging — Console filter **`com.elevenlabs.sdk`** (upstream `Documentation/Usage.md`).
 - **Manual QA**: `VoiceTutor/docs/MANUAL-TEST-MATRIX.md` · **Custom stack spike notes**: `VoiceTutor/docs/voice-tutor-custom-stack-spike.md`
 
+### Leo (macOS Chinese immersive reader)
+- **Path**: `Leo/`
+- **Dock / windows**: Standard app — **`LSUIElement` is not set** in [`Leo/Sources/Resources/Info.plist`](Leo/Sources/Resources/Info.plist); Leo appears in the **Dock** and uses a main **`WindowGroup`** (not menu-bar-only like Tiempo/Adhan/Love/IMI).
+- **Stack**: Swift 6.2+, SwiftUI, SwiftData, Foliate-js in WKWebView, local HTTP (Swifter), optional OpenRouter + InWorld TTS; **Read aloud** falls back to **macOS `AVSpeechSynthesizer`** when no InWorld key or when **Settings → Voice → “Use macOS voices”** is on (no word-level sync on system speech).
+- **PRD / plan**: `Leo/PRD.md`, `Leo/PLAN.md` (includes **shipped vs stub** matrix)
+- **Workflow**: `Leo/WORKFLOW.md` — canonical Leo implementation branch is **`leo/v1.0-digital-vellum`**; stable fallback is **`leo/v0.2-consolidation`**
+- **Threat model**: `Leo/leo-threat-model.md` (loopback bind, CORS scope)
+- **Branch gate**: run **`./Leo/scripts/verify-branch-gate.sh`** before any Leo work; it fails if the current branch is not `leo/v1.0-digital-vellum` or if `git status --short Leo` is dirty
+- **Commit discipline**: stage only **`Leo/`** for Leo commits; never use repo-wide `git add .` while unrelated monorepo changes exist; keep scratch Leo branches private and reintegrate them into `leo/v1.0-digital-vellum` before handoff
+- **Tests**: **`cd Leo && swift test`** — SPM unit / logic tests only (no SwiftUI windows); includes **PDF → reflow EPUB** pipeline tests (`PDFConverterPipelineTests`). Same tests via Xcode after opening the package once:
+  `xcodebuild test -workspace Leo/.swiftpm/xcode/package.xcworkspace -scheme Leo -destination 'platform=macOS'`.
+- **UX tests (XCUITest)**: **`cd Leo && ./scripts/run-ux-tests.sh`** — runs **`build-app.sh`** then **`xcodebuild test`** on **`Leo/XcodeUX/LeoUX.xcodeproj`** (scheme **`LeoUX`**). Launches **`Leo/build/Leo.app`** by path; grant **Accessibility** to the test runner if macOS blocks automation.
+- **UX tests via Xcode MCP** (when Cursor **Xcode** server is enabled, e.g. **`project-0-002-xcode`**): open **`Leo/XcodeUX/LeoUX.xcodeproj`** in Xcode, select scheme **`LeoUX`**, then use MCP tools **`RunAllTests`** / **`RunSomeTests`** (pass the workspace **`tabIdentifier`** from your Xcode window). Use **`GetBuildLog`** and the reported **`fullSummaryPath`** for failures—same tests as the CLI script, richer summaries and breakpoints.
+- **UI-test-only launch env** (used by XCUITests): **`LEO_UI_TEST_BOOK_PATH`** — absolute path to **EPUB or PDF** to copy into the library and select; **`LEO_UI_TEST_SHOW_LOOKUP`** = `1` plus optional **`LEO_UI_TEST_LOOKUP_WORD`** (default `你好`) sets **`leo.reader.dictionarySmoke`** for **EPUB only** (PDF ignores it); **`LEO_UI_TEST_SEED_FSRS_CARD`** = `1` plus optional **`LEO_UI_TEST_FSRS_WORD`** seeds or refreshes a **due** `FSRSCard` for review-flow UI tests. Regenerate **`Leo/XcodeUX/LeoUITests/Fixtures/smoke.pdf`** with **`Leo/scripts/gen-smoke-pdf.swift`** if needed.
+- **Build app**: `cd Leo && ./build-app.sh` → `Leo/build/Leo.app` (open that build, not only `swift run`, for real `Bundle.main` + embedded `web/`)
+- **UI smoke** (fast gate — launch + process; optional window count via Accessibility): `cd Leo && ./scripts/ui-smoke.sh` — set `LEO_UI_SMOKE_SKIP_AX=1` for process-only if System Events is blocked.
+- **WKWebView**: In debug, **Safari → Develop** shows the Foliate page when **`isInspectable`** is enabled (`FoliateReaderView`).
+- **Autonomous verify loop**: (1) `cd Leo && swift test`; (2) `cd Leo && ./scripts/run-ux-tests.sh` or **Xcode MCP `RunAllTests`** on **`LeoUX`** when UI changed; (3) **`./scripts/ui-smoke.sh`** for a quick process launch; (4) triage → polish SwiftUI / **`accessibilityIdentifier`** → repeat.
+- **Note**: PDF format is view-only; EPUB has full dictionary popup, Read aloud (TTS), reading layout popover in the reader toolbar, and Anki import/export (File menu + Settings → Anki)
+
 ### SyncReader (Tauri + Svelte)
 - **Path**: `syncreader/`
 - **Stack**: Tauri, Svelte 5, TypeScript
@@ -82,12 +102,15 @@ This file is read by both Cursor and Claude Code agents.
 
 ## Learned User Preferences
 - Prefer running commands and automated tests in the repo over giving instructions-only replies when the environment allows shell access.
-- For web apps, verify UX in a real browser when MCP browser tools are available; native macOS SwiftUI apps (Tiempo, Adhan, Love, IMI) are not driven by browser automation in chat—combine `swift test` / local `.app` builds with manual UI review or XCUITest instead of implying click-through coverage from the agent alone.
+- For web apps, verify UX in a real browser when MCP browser tools are available; native macOS app targets (Tiempo, Adhan, Love, IMI, Leo) are not driven by browser automation in chat—combine `swift test` / local `.app` builds with **Xcode MCP** (when configured), XCUITest, Peekaboo, or manual UI review instead of implying click-through coverage from the browser MCP alone.
+- For **Leo** UX verification and polish, use **Xcode MCP** (when available) and XCUITest to exercise **distinct** surfaces—EPUB and PDF paths, dictionary lookup, overlays, and FSRS—not repetitive clicks on the same elements; looping shallow actions is not sufficient coverage.
 - Before stating that a capability is unavailable in-session, check workspace MCP tool descriptors (e.g. `cursor-ide-browser`) rather than relying only on the short server list in a system prompt.
-- When the user reports no visible change in a macOS app, or cannot find or run the app, verify whether they are using `/Applications/…`, `swift run`, or a freshly built `.app`, and remember that menu-bar-first apps with `LSUIElement` do not show in the Dock even when installed; align with the rebuild, install, and menu-bar notes in this file.
+- When the user reports no visible change in a macOS app, or cannot find or run the app, verify whether they are using `/Applications/…`, `swift run`, or a freshly built `.app`. **Leo** is a normal Dock app; **Tiempo, Adhan, Love, IMI** use `LSUIElement` and stay off the Dock—use their menu-bar icons. Align with rebuild/install notes per project in this file.
 - When disabling or interrupting TTS on macOS (including Claude Code settings such as `CLAUDE_TTS_ENABLED`), stop in-flight playback explicitly (for example terminate `afplay` and related player processes) before or alongside changing settings; toggling configuration alone does not stop audio that is already playing.
 
 ## Learned Workspace Facts
+- **Cursor + Xcode MCP:** This repo includes [`.cursor/mcp.json`](.cursor/mcp.json) registering the **`xcode`** server (`xcrun mcpbridge`, per [Apple’s guide](https://developer.apple.com/documentation/Xcode/giving-agentic-coding-tools-access-to-xcode)). In **Xcode → Settings → Intelligence**, turn on **Allow external agents to use Xcode tools**. Open the relevant project or package in **Xcode** before expecting MCP tools to drive builds/tests; Cursor loads project-level MCP when this workspace is open.
+- `Leo/` — see **Leo (macOS Chinese immersive reader)** under Projects for commands and verification; threat model `Leo/leo-threat-model.md`.
 - Pomodoro `scripts/run-e2e-with-server.sh` defaults to an ephemeral listen port and requires `<title>Pomodoro</title>` in the response so e2e cannot pass against an unrelated process on a fixed port.
 - Pomodoro / Next.js allows only one `next dev` per project directory; a second instance can print a URL and then exit, so kill stale servers first and trust the still-running process.
 - `focus-node/` is the merged successor for current focus-product work; use `pomodoro/` as a reference implementation, not as a second live app to evolve in parallel.
