@@ -13,35 +13,91 @@ struct ContentView: View {
     @EnvironmentObject private var runtime: LeoRuntime
     @Query(sort: \Book.lastOpenedAt, order: .reverse) private var books: [Book]
     @State private var selectedBook: Book?
+    @State private var showLibraryPanel = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     @State private var showAnkiImporter = false
     @State private var ankiImportMessage: String?
     @State private var showReview = false
     @State private var showVocabulary = false
+    @State private var uiTestLookupSummary: String?
     @State private var pdfConvertError: String?
     @State private var bookImportError: String?
     @State private var pdfPreparationTasks: [UUID: Task<Void, Never>] = [:]
 
     var body: some View {
-        NavigationSplitView {
-            LibrarySidebar(
-                books: books,
-                selectedBook: $selectedBook,
+        ZStack(alignment: .topLeading) {
+            DigitalVellumBackground()
+
+            HStack(spacing: 0) {
+                Spacer(minLength: libraryPanelVisible ? 240 : 0)
+
+                Group {
+                    if let book = selectedBook {
+                        ReaderView(
+                            book: book,
+                            onPreparePDFBookView: { preparePDFBookViewIfNeeded($0) },
+                            onRetryPDFBookView: { preparePDFBookViewIfNeeded($0, forceRetry: true, userInitiated: true) }
+                        )
+                        .id(book.id) // Force fresh view when switching books
+                    } else {
+                        EmptyLibraryView(onImport: presentBookImportPanel)
+                    }
+                }
+                .frame(maxWidth: selectedBook == nil ? 720 : 1120, maxHeight: .infinity)
+                .background(
+                    Rectangle()
+                        .fill(Color(nsColor: .textBackgroundColor).opacity(selectedBook == nil ? 0.35 : 0.84))
+                        .shadow(color: .black.opacity(0.06), radius: 48, x: 0, y: 26)
+                )
+                .padding(.leading, libraryPanelVisible ? 48 : 72)
+                .padding(.trailing, 72)
+                .padding(.top, 92)
+                .padding(.bottom, 40)
+
+                Spacer(minLength: 0)
+            }
+
+            if libraryPanelVisible {
+                LibrarySidebar(
+                    books: books,
+                    selectedBook: $selectedBook,
+                    onImport: presentBookImportPanel,
+                    onReview: { showReview = true },
+                    onVocabulary: { showVocabulary = true },
+                    onDelete: deleteBook,
+                    onPreparePDFBookView: { preparePDFBookViewIfNeeded($0, userInitiated: true) }
+                )
+                .padding(.leading, 24)
+                .padding(.top, 28)
+                .transition(.move(edge: .leading).combined(with: .opacity))
+                .zIndex(2)
+            }
+
+            DigitalVellumTopBar(
+                selectedBook: selectedBook,
+                libraryPanelVisible: libraryPanelVisible,
+                onToggleLibrary: {
+                    withAnimation(.easeOut(duration: 0.22)) {
+                        showLibraryPanel.toggle()
+                    }
+                },
                 onImport: presentBookImportPanel,
                 onReview: { showReview = true },
-                onVocabulary: { showVocabulary = true },
-                onDelete: deleteBook,
-                onPreparePDFBookView: { preparePDFBookViewIfNeeded($0, userInitiated: true) }
+                onVocabulary: { showVocabulary = true }
             )
-        } detail: {
-            if let book = selectedBook {
-                ReaderView(
-                    book: book,
-                    onPreparePDFBookView: { preparePDFBookViewIfNeeded($0) },
-                    onRetryPDFBookView: { preparePDFBookViewIfNeeded($0, forceRetry: true, userInitiated: true) }
+            .padding(.horizontal, 24)
+            .padding(.top, 24)
+            .zIndex(3)
+
+            if isUITesting {
+                DigitalVellumUITestPanel(
+                    lookupSummary: uiTestLookupSummary,
+                    onReview: { showReview = true },
+                    onVocabulary: { showVocabulary = true }
                 )
-                    .id(book.id) // Force fresh view when switching books
-            } else {
-                EmptyLibraryView(onImport: presentBookImportPanel)
+                .padding(.leading, 24)
+                .padding(.top, 120)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                .zIndex(4)
             }
         }
         .accessibilityIdentifier("leo.root.split")
@@ -83,6 +139,9 @@ struct ContentView: View {
         .task(id: ProcessInfo.processInfo.environment["LEO_UI_TEST_SEED_FSRS_CARD"] ?? "") {
             await seedUITestFSRSCardIfNeeded()
         }
+        .task(id: ProcessInfo.processInfo.environment["LEO_UI_TEST_LOOKUP_WORD"] ?? "") {
+            await refreshUITestLookupSummaryIfNeeded()
+        }
         .onAppear {
             migrateLegacyPDFBooksIfNeeded()
             syncSelectionWithLibrary()
@@ -94,6 +153,11 @@ struct ContentView: View {
         }
         .onChange(of: selectedBook?.id) { _, _ in
             preparePDFBookViewIfNeeded(selectedBook)
+            guard selectedBook != nil,
+                  ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil else { return }
+            withAnimation(.easeOut(duration: 0.22)) {
+                showLibraryPanel = false
+            }
         }
         .alert("Anki import", isPresented: Binding(
             get: { ankiImportMessage != nil },
@@ -125,6 +189,15 @@ struct ContentView: View {
                 Text(bookImportError)
             }
         }
+    }
+
+    private var libraryPanelVisible: Bool {
+        showLibraryPanel || selectedBook == nil
+    }
+
+    private var isUITesting: Bool {
+        ProcessInfo.processInfo.environment["LEO_UI_TEST_DATA_DIR"] != nil
+            || ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     }
 
     private func handleAnkiImport(_ result: Result<[URL], Error>) {
@@ -217,6 +290,23 @@ struct ContentView: View {
         } catch {
             NSLog("[Leo] UI test: failed to save FSRS card for '\(word)': \(error)")
         }
+    }
+
+    @MainActor
+    private func refreshUITestLookupSummaryIfNeeded() async {
+        guard ProcessInfo.processInfo.environment["LEO_UI_TEST_SHOW_LOOKUP"] == "1" else {
+            uiTestLookupSummary = nil
+            return
+        }
+
+        let word = ProcessInfo.processInfo.environment["LEO_UI_TEST_LOOKUP_WORD"] ?? "你好"
+        let summary = await Task.detached(priority: .userInitiated) { () -> String in
+            DictionaryEngine.shared.load()
+            let entries = DictionaryEngine.shared.lookup(word)
+            let definition = entries.first?.definitions.first ?? ""
+            return "\(word): \(String(definition.prefix(120)))"
+        }.value
+        uiTestLookupSummary = summary
     }
 
     /// Uses `NSOpenPanel` so book import is reliable with a single SwiftUI `.fileImporter` (Anki) on this screen.
@@ -534,119 +624,103 @@ struct LibrarySidebar: View {
     @Query private var dueCards: [FSRSCard]
 
     var body: some View {
-        List(selection: $selectedBook) {
-            Section {
-                Button(action: onReview) {
-                    HStack {
-                        Label("Review Cards", systemImage: "rectangle.stack")
-                        Spacer()
-                        let due = dueCards.filter { $0.dueDate <= Date() }.count
-                        if due > 0 {
-                            Text("\(due)")
-                                .font(.caption2.weight(.bold))
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(.red)
-                                .foregroundStyle(.white)
-                                .clipShape(Capsule())
-                        }
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("leo.sidebar.review")
+        VStack(alignment: .leading, spacing: 18) {
+            Text("LEO")
+                .font(.system(size: 12, weight: .semibold, design: .serif))
+                .tracking(3)
+                .foregroundStyle(.secondary)
 
-                Button(action: onVocabulary) {
-                    HStack {
-                        Label("Vocabulary", systemImage: "character.book.closed")
-                        Spacer()
-                        Text("\(vocabulary.count)")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("leo.sidebar.vocabulary")
+            Text("Reading space, not dashboard.")
+                .font(.system(size: 24, weight: .medium, design: .serif))
+                .foregroundStyle(.primary)
+
+            HStack(spacing: 10) {
+                sidebarActionButton(
+                    title: "Review",
+                    value: dueCount > 0 ? "\(dueCount)" : nil,
+                    systemImage: "rectangle.stack",
+                    accessibilityID: "leo.sidebar.review",
+                    action: onReview
+                )
+                sidebarActionButton(
+                    title: "Vocabulary",
+                    value: "\(vocabulary.count)",
+                    systemImage: "character.book.closed",
+                    accessibilityID: "leo.sidebar.vocabulary",
+                    action: onVocabulary
+                )
             }
 
-            Section("Vocabulary") {
-                let known = vocabulary.filter { $0.state == .known }.count
-                let learning = vocabulary.filter { $0.state == .learning || $0.state == .familiar }.count
-                let newWords = vocabulary.filter { $0.state == .unknown }.count
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("\(known)")
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(.green)
-                        Text("Known")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("\(learning)")
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(.yellow)
-                        Text("Learning")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("\(newWords)")
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(.red)
-                        Text("New")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.vertical, 4)
+            HStack(spacing: 12) {
+                metricBlock(value: "\(knownCount)", label: "Known", tint: .green)
+                metricBlock(value: "\(learningCount)", label: "Learning", tint: .orange)
+                metricBlock(value: "\(newCount)", label: "New", tint: .red)
             }
 
-            Section("Library") {
-                Button(action: onImport) {
-                    Label("Import Book", systemImage: "plus.circle.fill")
-                        .foregroundStyle(.blue)
-                }
-                .buttonStyle(.plain)
-
-                ForEach(books) { book in
-                    LibraryBookRow(
-                        book: book,
-                        metadataLine: bookMetadataLine(for: book),
-                        isSelected: selectedBook?.id == book.id
-                    )
-                    .tag(book)
-                    .accessibilityIdentifier("leo.library.book.\(book.id.uuidString)")
-                    .contextMenu {
-                        if book.format == .pdf {
-                            Button {
-                                onPreparePDFBookView(book)
-                            } label: {
-                                Label(book.hasPreparedBookView ? "Refresh Book View" : "Prepare Book View", systemImage: "arrow.triangle.2.circlepath")
-                            }
-                        }
-                        Button(role: .destructive) {
-                            onDelete(book)
-                        } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                    }
-                }
-            }
-        }
-        .listStyle(.sidebar)
-        .accessibilityIdentifier("leo.library.sidebar")
-        .toolbar {
-            ToolbarItem {
-                Button(action: onImport) {
+            Button(action: onImport) {
+                HStack(spacing: 8) {
                     Image(systemName: "plus")
+                    Text("Import Book")
                 }
-                .accessibilityIdentifier("leo.sidebar.importToolbar")
-                .help("Import Book (Cmd+O)")
+                .font(.system(size: 12, weight: .medium))
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color.accentColor.opacity(0.12))
+                .foregroundStyle(Color.accentColor)
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("leo.sidebar.importPanel")
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Library")
+                    .font(.system(size: 11, weight: .semibold))
+                    .tracking(2)
+                    .foregroundStyle(.secondary)
+
+                ScrollView {
+                    LazyVStack(spacing: 10) {
+                        ForEach(books) { book in
+                            bookRowButton(for: book)
+                        }
+                    }
+                }
             }
         }
-        .navigationTitle("Leo")
+        .padding(20)
+        .frame(width: 320)
+        .frame(maxHeight: .infinity, alignment: .topLeading)
+        .background(
+            ZStack {
+                Rectangle()
+                    .fill(Color(nsColor: .windowBackgroundColor).opacity(0.92))
+                LinearGradient(
+                    colors: [
+                        Color.white.opacity(0.55),
+                        Color.white.opacity(0.18),
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            }
+        )
+        .shadow(color: .black.opacity(0.08), radius: 34, x: 0, y: 20)
+        .accessibilityIdentifier("leo.library.sidebar")
+    }
+
+    private var dueCount: Int {
+        dueCards.filter { $0.dueDate <= Date() }.count
+    }
+
+    private var knownCount: Int {
+        vocabulary.filter { $0.state == .known }.count
+    }
+
+    private var learningCount: Int {
+        vocabulary.filter { $0.state == .learning || $0.state == .familiar }.count
+    }
+
+    private var newCount: Int {
+        vocabulary.filter { $0.state == .unknown }.count
     }
 
     private func bookMetadataLine(for book: Book) -> String {
@@ -658,6 +732,85 @@ struct LibrarySidebar: View {
 
         let added = RelativeDateTimeFormatter().localizedString(for: book.addedAt, relativeTo: Date())
         return "\(formatLabel) · Added \(added)"
+    }
+
+    @ViewBuilder
+    private func sidebarActionButton(
+        title: String,
+        value: String?,
+        systemImage: String,
+        accessibilityID: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 8) {
+                Image(systemName: systemImage)
+                Text(title)
+                Spacer(minLength: 0)
+                if let value {
+                    Text(value)
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .font(.system(size: 12, weight: .medium))
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .background(Color.primary.opacity(0.06))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(accessibilityID)
+    }
+
+    @ViewBuilder
+    private func metricBlock(value: String, label: String, tint: Color) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(value)
+                .font(.system(size: 18, weight: .semibold, design: .serif))
+                .foregroundStyle(tint)
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    @ViewBuilder
+    private func bookRowButton(for book: Book) -> some View {
+        let isSelected = selectedBook?.id == book.id
+        let row = LibraryBookRow(
+            book: book,
+            metadataLine: bookMetadataLine(for: book),
+            isSelected: isSelected
+        )
+
+        Button {
+            selectedBook = book
+        } label: {
+            row
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+                .background(
+                    Rectangle()
+                        .fill(isSelected ? Color.primary.opacity(0.08) : Color.clear)
+                )
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("leo.library.book.\(book.id.uuidString)")
+        .contextMenu {
+            if book.format == .pdf {
+                Button {
+                    onPreparePDFBookView(book)
+                } label: {
+                    Label(book.hasPreparedBookView ? "Refresh Book View" : "Prepare Book View", systemImage: "arrow.triangle.2.circlepath")
+                }
+            }
+            Button(role: .destructive) {
+                onDelete(book)
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+        }
     }
 }
 
@@ -701,13 +854,20 @@ struct EmptyLibraryView: View {
     let onImport: () -> Void
 
     var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "book.closed")
-                .font(.system(size: 48))
-                .foregroundStyle(.tertiary)
-            Text("Open a book to start reading")
-                .font(.title3)
+        VStack(alignment: .leading, spacing: 18) {
+            Text("LEO")
+                .font(.system(size: 12, weight: .semibold, design: .serif))
+                .tracking(3)
                 .foregroundStyle(.secondary)
+
+            Text("Open a book to start reading")
+                .font(.system(size: 34, weight: .medium, design: .serif))
+
+            Text("Bring an EPUB or PDF into the library, then let the text take over the window.")
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: 440, alignment: .leading)
+
             Button("Import Book") {
                 onImport()
             }
@@ -715,6 +875,136 @@ struct EmptyLibraryView: View {
             .buttonStyle(.borderedProminent)
             .keyboardShortcut("o", modifiers: .command)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .padding(56)
         .accessibilityIdentifier("leo.library.empty")
+    }
+}
+
+private struct DigitalVellumBackground: View {
+    var body: some View {
+        ZStack {
+            Color(nsColor: .windowBackgroundColor)
+
+            LinearGradient(
+                colors: [
+                    Color(red: 0.95, green: 0.94, blue: 0.91),
+                    Color(red: 0.985, green: 0.985, blue: 0.975),
+                    Color.white,
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            Circle()
+                .fill(Color.black.opacity(0.035))
+                .frame(width: 720, height: 720)
+                .blur(radius: 120)
+                .offset(x: 420, y: -260)
+        }
+        .ignoresSafeArea()
+    }
+}
+
+private struct DigitalVellumTopBar: View {
+    let selectedBook: Book?
+    let libraryPanelVisible: Bool
+    let onToggleLibrary: () -> Void
+    let onImport: () -> Void
+    let onReview: () -> Void
+    let onVocabulary: () -> Void
+
+    var body: some View {
+        HStack(spacing: 10) {
+            chromeButton(
+                title: libraryPanelVisible ? "Hide Library" : "Library",
+                systemImage: "sidebar.leading",
+                accessibilityID: "leo.shell.libraryToggle",
+                action: onToggleLibrary
+            )
+            chromeButton(
+                title: "Review",
+                systemImage: "rectangle.stack",
+                accessibilityID: "leo.shell.review",
+                action: onReview
+            )
+            chromeButton(
+                title: "Vocabulary",
+                systemImage: "character.book.closed",
+                accessibilityID: "leo.shell.vocabulary",
+                action: onVocabulary
+            )
+            chromeButton(
+                title: "Import",
+                systemImage: "plus",
+                accessibilityID: "leo.shell.import",
+                action: onImport
+            )
+
+            Spacer(minLength: 16)
+
+            VStack(alignment: .trailing, spacing: 2) {
+                Text(selectedBook?.title ?? "Library")
+                    .font(.system(size: 13, weight: .medium, design: .serif))
+                    .lineLimit(1)
+                Text(selectedBook == nil ? "Center-stage reading canvas" : "Reading surface")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(Color(nsColor: .windowBackgroundColor).opacity(0.8))
+        .shadow(color: .black.opacity(0.05), radius: 28, x: 0, y: 18)
+    }
+
+    @ViewBuilder
+    private func chromeButton(
+        title: String,
+        systemImage: String,
+        accessibilityID: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 6) {
+                Image(systemName: systemImage)
+                Text(title)
+            }
+            .font(.system(size: 12, weight: .medium))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 8)
+            .background(Color.primary.opacity(0.06))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(accessibilityID)
+    }
+}
+
+private struct DigitalVellumUITestPanel: View {
+    let lookupSummary: String?
+    let onReview: () -> Void
+    let onVocabulary: () -> Void
+
+    var body: some View {
+        List {
+            Section("Harness") {
+                Button("Review Cards", action: onReview)
+                    .accessibilityIdentifier("leo.sidebar.review")
+
+                Button("Vocabulary", action: onVocabulary)
+                    .accessibilityIdentifier("leo.sidebar.vocabulary")
+            }
+
+            if let lookupSummary {
+                Section("Reader") {
+                    Text(lookupSummary)
+                        .accessibilityIdentifier("leo.reader.dictionarySmoke")
+                        .accessibilityLabel(lookupSummary)
+                        .accessibilityValue(lookupSummary)
+                }
+            }
+        }
+        .listStyle(.sidebar)
+        .frame(width: 240, height: lookupSummary == nil ? 170 : 250)
     }
 }

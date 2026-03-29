@@ -128,8 +128,10 @@ struct ReaderView: View {
                         .padding(6)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                        .accessibilityElement(children: .ignore)
                         .accessibilityIdentifier("leo.reader.dictionarySmoke")
                         .accessibilityLabel(summary)
+                        .accessibilityValue(summary)
                 }
 
                 if let locatorSummary = uiTestLocatorSummary, usesFoliateReader {
@@ -140,6 +142,7 @@ struct ReaderView: View {
                         .id(locatorSummary)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                        .accessibilityElement(children: .ignore)
                         .accessibilityIdentifier("leo.reader.locatorProbe")
                         .accessibilityLabel(locatorSummary)
                         .accessibilityValue(locatorSummary)
@@ -152,6 +155,7 @@ struct ReaderView: View {
                         .padding(6)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                        .accessibilityElement(children: .ignore)
                         .accessibilityIdentifier("leo.reader.pdfPageProbe")
                         .accessibilityLabel(pdfPageSummary)
                         .accessibilityValue(pdfPageSummary)
@@ -376,16 +380,14 @@ struct ReaderView: View {
         book.format != .pdf || (bookViewReady && activePDFMode == .bookView)
     }
 
-    // Called by the coordinator immediately after resolving the tapped word.
-    // Used to record the encounter in the familiarity tracker / session engine.
-    // The popup itself is rendered in JS — we don't show any SwiftUI state here.
+    // Called by the coordinator when the reader bridge reports a tap.
+    // Use the same expression resolution path as the floating panel so
+    // familiarity and review state track the unit the user actually sees.
     private func handleWordTap(_ char: String, context: String, charIndex: Int, x: CGFloat, y: CGFloat) {
         NSLog("[Leo UI] Word tap received: char=\(char), context=\(context.prefix(20)), idx=\(charIndex)")
 
-        // The coordinator already resolved the word and is calling showPopup() in JS.
-        // We just record the encounter here for familiarity tracking.
         let parser = ChineseParser()
-        let word = parser.resolveWordAtPosition(context: context, charIndex: charIndex)
+        let word = parser.resolveExpressionAtPosition(context: context, charIndex: charIndex)
         let entries = DictionaryEngine.shared.lookup(word)
         let pinyin = entries.first?.pinyinDisplay ?? ""
         let def = entries.first?.definitions.first ?? ""

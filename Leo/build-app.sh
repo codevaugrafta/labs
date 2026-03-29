@@ -11,7 +11,31 @@ BUNDLE_NAME="${BUNDLE_STEM}.app"
 BUNDLE_ID="${LEO_BUNDLE_ID_OVERRIDE:-com.franciscodilussor.leo}"
 OUTPUT_DIR="build"
 APP_BUNDLE="${OUTPUT_DIR}/${BUNDLE_NAME}"
-INFO_PLIST_PATH="${APP_BUNDLE}/Contents/Info.plist"
+TMP_BUNDLE="${OUTPUT_DIR}/.${BUNDLE_NAME}.tmp.$$"
+BACKUP_BUNDLE="${OUTPUT_DIR}/.${BUNDLE_NAME}.bak.$$"
+LOCK_DIR="${OUTPUT_DIR}/.build-app.lock"
+INFO_PLIST_PATH="${TMP_BUNDLE}/Contents/Info.plist"
+
+mkdir -p "${OUTPUT_DIR}"
+
+acquire_lock() {
+    local waited=0
+    while ! mkdir "${LOCK_DIR}" 2>/dev/null; do
+        if [ "${waited}" -eq 0 ]; then
+            echo "Waiting for another Leo bundle build to finish..."
+        fi
+        waited=$((waited + 1))
+        sleep 0.2
+    done
+}
+
+cleanup() {
+    rm -rf "${TMP_BUNDLE}" "${BACKUP_BUNDLE}" 2>/dev/null || true
+    rmdir "${LOCK_DIR}" 2>/dev/null || true
+}
+
+acquire_lock
+trap cleanup EXIT
 
 echo "=== Building ${BUNDLE_STEM} (release) ==="
 
@@ -31,31 +55,31 @@ fi
 
 # Step 2: Create .app bundle structure
 echo "[2/4] Creating app bundle..."
-rm -rf "$APP_BUNDLE"
-mkdir -p "${APP_BUNDLE}/Contents/MacOS"
-mkdir -p "${APP_BUNDLE}/Contents/Resources"
+rm -rf "${TMP_BUNDLE}" "${BACKUP_BUNDLE}"
+mkdir -p "${TMP_BUNDLE}/Contents/MacOS"
+mkdir -p "${TMP_BUNDLE}/Contents/Resources"
 
 # Step 3: Copy files
 echo "[3/4] Copying files..."
-cp "$EXECUTABLE" "${APP_BUNDLE}/Contents/MacOS/${APP_NAME}"
-cp "Sources/Resources/Info.plist" "${APP_BUNDLE}/Contents/"
+cp "$EXECUTABLE" "${TMP_BUNDLE}/Contents/MacOS/${APP_NAME}"
+cp "Sources/Resources/Info.plist" "${TMP_BUNDLE}/Contents/"
 /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier ${BUNDLE_ID}" "${INFO_PLIST_PATH}" >/dev/null
 /usr/libexec/PlistBuddy -c "Set :CFBundleName ${BUNDLE_STEM}" "${INFO_PLIST_PATH}" >/dev/null
 /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName ${BUNDLE_STEM}" "${INFO_PLIST_PATH}" >/dev/null
 
 # Copy dictionary and SPM bundle resources
 if [ -d "${BUILD_DIR}/Leo_Leo.bundle" ]; then
-    cp -r "${BUILD_DIR}/Leo_Leo.bundle" "${APP_BUNDLE}/Contents/Resources/"
+    cp -r "${BUILD_DIR}/Leo_Leo.bundle" "${TMP_BUNDLE}/Contents/Resources/"
 fi
 # Copy dictionary directly as fallback
-mkdir -p "${APP_BUNDLE}/Contents/Resources/Dictionary"
+mkdir -p "${TMP_BUNDLE}/Contents/Resources/Dictionary"
 if [ -f "Sources/Resources/Dictionary/cedict.txt" ]; then
-    cp "Sources/Resources/Dictionary/cedict.txt" "${APP_BUNDLE}/Contents/Resources/Dictionary/"
+    cp "Sources/Resources/Dictionary/cedict.txt" "${TMP_BUNDLE}/Contents/Resources/Dictionary/"
 fi
 
 # Copy web resources directly (foliate-js, reader.html, reader.js)
 if [ -d "Sources/Resources/web" ]; then
-    cp -r "Sources/Resources/web" "${APP_BUNDLE}/Contents/Resources/"
+    cp -r "Sources/Resources/web" "${TMP_BUNDLE}/Contents/Resources/"
 fi
 
 # Copy entitlements for signing
@@ -66,7 +90,13 @@ echo "[4/4] Signing..."
 codesign --force --sign - \
     --entitlements "$ENTITLEMENTS" \
     --deep \
-    "${APP_BUNDLE}"
+    "${TMP_BUNDLE}"
+
+if [ -e "${APP_BUNDLE}" ]; then
+    mv "${APP_BUNDLE}" "${BACKUP_BUNDLE}"
+fi
+mv "${TMP_BUNDLE}" "${APP_BUNDLE}"
+rm -rf "${BACKUP_BUNDLE}"
 
 echo ""
 echo "=== Build complete ==="

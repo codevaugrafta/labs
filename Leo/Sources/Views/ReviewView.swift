@@ -142,6 +142,8 @@ struct ReviewView: View {
             }
         }
         .padding()
+        .accessibilityIdentifier("leo.review.root")
+        .accessibilityElement(children: .contain)
     }
 
     private func ratingButton(_ label: String, color: Color, rating: Rating) -> some View {
@@ -203,6 +205,8 @@ struct ReviewView: View {
                 loadDueCards()
             }
         }
+        .accessibilityIdentifier("leo.review.root")
+        .accessibilityElement(children: .contain)
     }
 
     // MARK: - Actions
