@@ -70,6 +70,11 @@ struct PDFConverterPipelineTests {
         #expect(content.pages.count >= 1)
         let joined = content.pages.map(\.text).joined(separator: "\n")
         #expect(joined.localizedCaseInsensitiveContains("leo"))
+
+        let assessment = PDFConverter.assess(content: content)
+        #expect(assessment.isUsable)
+        #expect(assessment.failureReason == nil)
+        #expect(assessment.meaningfulCharacterCount > 0)
     }
 
     @Test("PDFLayoutAnalyzer strips repeated header and footer across pages")
@@ -154,7 +159,9 @@ struct PDFConverterPipelineTests {
             try? FileManager.default.removeItem(at: epub)
         }
 
-        try PDFConverter().convert(pdfURL: pdf, outputEPUBURL: epub)
+        let assessment = try PDFConverter().convert(pdfURL: pdf, outputEPUBURL: epub)
+        #expect(assessment.isUsable)
+        #expect(assessment.usablePages == 2)
         #expect(FileManager.default.fileExists(atPath: epub.path))
 
         let tmp = FileManager.default.temporaryDirectory
@@ -173,5 +180,79 @@ struct PDFConverterPipelineTests {
         #expect(xhtml.contains("本体第一节"))
         #expect(xhtml.contains("本体第二节"))
         try? FileManager.default.removeItem(at: tmp)
+    }
+
+    @Test("PDFConverter quality gate accepts native text content")
+    func qualityGateAcceptsNativeText() {
+        let content = PDFParser.PDFContent(
+            title: "Native",
+            pageCount: 2,
+            pages: [
+                PDFParser.Page(id: 0, text: "第一章\n这是正文。"),
+                PDFParser.Page(id: 1, text: "第二章\n还有正文。"),
+            ]
+        )
+
+        let assessment = PDFConverter.assess(content: content)
+
+        #expect(assessment.isUsable)
+        #expect(assessment.failureReason == nil)
+        #expect(assessment.usablePages == 2)
+        #expect(assessment.meaningfulCharacterCount > 0)
+    }
+
+    @Test("PDFConverter quality gate accepts OCR output with real text")
+    func qualityGateAcceptsOCRText() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .appendingPathComponent("../XcodeUX/LeoUITests/Fixtures/smoke.pdf")
+            .standardizedFileURL
+
+        let content = try PDFParser().parse(fileURL: url)
+        let assessment = PDFConverter.assess(content: content)
+
+        #expect(assessment.isUsable)
+        #expect(assessment.failureReason == nil)
+        #expect(assessment.meaningfulCharacterCount > 0)
+    }
+
+    @Test("PDFConverter quality gate rejects placeholder-only content")
+    func qualityGateRejectsLowContent() throws {
+        let content = PDFParser.PDFContent(
+            title: "LowQuality",
+            pageCount: 2,
+            pages: [
+                PDFParser.Page(id: 0, text: "(OCR failed)"),
+                PDFParser.Page(id: 1, text: "(Could not render page for OCR)"),
+            ]
+        )
+        let assessment = PDFConverter.assess(content: content)
+        #expect(!assessment.isUsable)
+        #expect(assessment.failureReason != nil)
+
+        let pdf = try Self.makeTextPDF(pages: [
+            "",
+            "",
+        ])
+        defer { try? FileManager.default.removeItem(at: pdf) }
+
+        let epub = FileManager.default.temporaryDirectory
+            .appendingPathComponent("leo-low-quality-\(UUID().uuidString).epub")
+        defer { try? FileManager.default.removeItem(at: epub) }
+
+        do {
+            _ = try PDFConverter().convert(pdfURL: pdf, outputEPUBURL: epub)
+            Issue.record("Expected PDFConverter to reject placeholder-only content")
+        } catch let error as PDFConverter.PDFConverterError {
+            switch error {
+            case .lowQuality(let reason):
+                #expect(
+                    reason.localizedCaseInsensitiveContains("readable text")
+                    || reason.localizedCaseInsensitiveContains("placeholder")
+                )
+            case .conversionFailed:
+                Issue.record("Expected low-quality rejection, not conversion failure")
+            }
+        }
     }
 }

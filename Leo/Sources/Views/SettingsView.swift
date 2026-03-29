@@ -42,25 +42,30 @@ struct GeneralSettingsTab: View {
     private let secretStore = LeoKeychainHelper()
 
     var body: some View {
-        Form {
-            Section("LLM Contextual Definitions") {
-                SecureField("OpenRouter API Key", text: $openRouterKey)
-                    .textFieldStyle(.roundedBorder)
-                    .onChange(of: openRouterKey) { _, newValue in
-                        persistSecret(newValue, for: .openRouter)
-                    }
-                TextField("Model", text: $lookupModel)
-                    .textFieldStyle(.roundedBorder)
-                Text("Uses OpenRouter over the network. Leave the key empty for CC-CEDICT-only popups.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                Text("Your API key is stored in the macOS Keychain, not in Leo’s plain settings store.")
-                    .font(.caption2)
-                    .foregroundStyle(.tertiary)
+        VStack(alignment: .leading, spacing: 12) {
+            Text("General")
+                .font(.headline)
+                .accessibilityIdentifier("leo.settings.tab.general")
+
+            Form {
+                Section("LLM Contextual Definitions") {
+                    SecureField("OpenRouter API Key", text: $openRouterKey)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: openRouterKey) { _, newValue in
+                            persistSecret(newValue, for: .openRouter)
+                        }
+                    TextField("Model", text: $lookupModel)
+                        .textFieldStyle(.roundedBorder)
+                    Text("Uses OpenRouter over the network. Leave the key empty for CC-CEDICT-only popups.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("Your API key is stored in the macOS Keychain, not in Leo’s plain settings store.")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
             }
         }
         .padding()
-        .accessibilityIdentifier("leo.settings.tab.general")
         .task {
             openRouterKey = secretStore.getSecret(for: .openRouter) ?? ""
         }
@@ -206,13 +211,15 @@ struct ReadingSettingsTab: View {
     @AppStorage("leo.textDirection") private var textDirection = "horizontal"
 
     var body: some View {
-        ReadingPreferencesForm(
-            fontSize: $fontSize,
-            lineHeight: $lineHeight,
-            textDirection: $textDirection,
-            showPinyin: $showPinyin,
-            showHighlights: $showHighlights
-        )
+        VStack(alignment: .leading, spacing: 0) {
+            ReadingPreferencesForm(
+                fontSize: $fontSize,
+                lineHeight: $lineHeight,
+                textDirection: $textDirection,
+                showPinyin: $showPinyin,
+                showHighlights: $showHighlights
+            )
+        }
         .padding()
         .accessibilityIdentifier("leo.settings.tab.reading")
     }

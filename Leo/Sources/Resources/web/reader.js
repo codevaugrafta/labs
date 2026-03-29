@@ -215,6 +215,14 @@ window.goTo = function(cfi) {
     }
 }
 
+window.goToFraction = function(fraction) {
+    try {
+        view.goToFraction(fraction)
+    } catch (err) {
+        postToSwift('error', { message: err.message, source: 'goToFraction' })
+    }
+}
+
 // Apply light/dark/sepia colors; typography comes from applyReadingPreferences.
 window.setTheme = function(themeP) {
     const bg = themeP.bg ?? window._leoLastTheme.bg

@@ -18,8 +18,8 @@ struct ContentView: View {
     @State private var showReview = false
     @State private var showVocabulary = false
     @State private var pdfConvertError: String?
-    @State private var isConvertingPDF = false
     @State private var bookImportError: String?
+    @State private var pdfPreparationTasks: [UUID: Task<Void, Never>] = [:]
 
     var body: some View {
         NavigationSplitView {
@@ -30,11 +30,15 @@ struct ContentView: View {
                 onReview: { showReview = true },
                 onVocabulary: { showVocabulary = true },
                 onDelete: deleteBook,
-                onConvertPDFToEPUB: convertPDFBookToReflowEPUB
+                onPreparePDFBookView: { preparePDFBookViewIfNeeded($0, userInitiated: true) }
             )
         } detail: {
             if let book = selectedBook {
-                ReaderView(book: book)
+                ReaderView(
+                    book: book,
+                    onPreparePDFBookView: { preparePDFBookViewIfNeeded($0) },
+                    onRetryPDFBookView: { preparePDFBookViewIfNeeded($0, forceRetry: true, userInitiated: true) }
+                )
                     .id(book.id) // Force fresh view when switching books
             } else {
                 EmptyLibraryView(onImport: presentBookImportPanel)
@@ -70,7 +74,7 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .leoRequestPDFConvert)) { note in
             guard let id = note.object as? UUID,
                   let book = books.first(where: { $0.id == id }) else { return }
-            convertPDFBookToReflowEPUB(book)
+            preparePDFBookViewIfNeeded(book, forceRetry: false, userInitiated: true)
         }
         // Stable task id so a @Query refresh does not cancel import mid-flight (UI tests).
         .task(id: ProcessInfo.processInfo.environment["LEO_UI_TEST_BOOK_PATH"] ?? "") {
@@ -80,10 +84,16 @@ struct ContentView: View {
             await seedUITestFSRSCardIfNeeded()
         }
         .onAppear {
+            migrateLegacyPDFBooksIfNeeded()
             syncSelectionWithLibrary()
+            preparePDFBookViewIfNeeded(selectedBook)
         }
         .onChange(of: books.map(\.id)) { _, _ in
+            migrateLegacyPDFBooksIfNeeded()
             syncSelectionWithLibrary()
+        }
+        .onChange(of: selectedBook?.id) { _, _ in
+            preparePDFBookViewIfNeeded(selectedBook)
         }
         .alert("Anki import", isPresented: Binding(
             get: { ankiImportMessage != nil },
@@ -113,18 +123,6 @@ struct ContentView: View {
         } message: {
             if let bookImportError {
                 Text(bookImportError)
-            }
-        }
-        .overlay {
-            if isConvertingPDF {
-                ZStack {
-                    Color.black.opacity(0.25)
-                        .ignoresSafeArea()
-                    ProgressView("Converting PDF…")
-                        .padding(24)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
-                }
-                .allowsHitTesting(true)
             }
         }
     }
@@ -162,8 +160,9 @@ struct ContentView: View {
             return
         }
         let fileName = source.lastPathComponent
-        if let existing = books.first(where: { $0.filePath.hasSuffix(fileName) }) {
+        if let existing = existingBook(matchingLibraryFilename: fileName) {
             selectedBook = existing
+            preparePDFBookViewIfNeeded(existing)
             return
         }
         let destination = runtime.booksDirectory.appendingPathComponent(fileName)
@@ -187,6 +186,7 @@ struct ContentView: View {
             NSLog("[Leo] UI test: failed to save book '\(title)': \(error)")
         }
         selectedBook = book
+        preparePDFBookViewIfNeeded(book)
     }
 
     /// UI tests: ensure a due FSRS card so Review shows a real card (not empty state).
@@ -245,9 +245,10 @@ struct ContentView: View {
         let fileName = url.lastPathComponent
 
         // True duplicate: same filename and file still on disk for that book.
-        if let existing = books.first(where: { ($0.filePath as NSString).lastPathComponent == fileName }) {
+        if let existing = existingBook(matchingLibraryFilename: fileName) {
             if FileManager.default.fileExists(atPath: existing.filePath) {
                 selectedBook = existing
+                preparePDFBookViewIfNeeded(existing)
                 return
             }
             if selectedBook?.id == existing.id { selectedBook = nil }
@@ -297,55 +298,140 @@ struct ContentView: View {
             return
         }
         selectedBook = book
+        preparePDFBookViewIfNeeded(book)
     }
 
-    /// Reflows PDF text into a derived EPUB for Foliate (dictionary, FSRS, TTS). Keeps the original PDF path on the model.
-    private func convertPDFBookToReflowEPUB(_ book: Book) {
+    /// Reflows PDF text into a derived EPUB for Foliate (dictionary, FSRS, TTS) without replacing the source PDF.
+    private func preparePDFBookViewIfNeeded(
+        _ book: Book?,
+        forceRetry: Bool = false,
+        userInitiated: Bool = false
+    ) {
+        guard let book else { return }
+
+        if book.migrateLegacyConvertedPDFIfNeeded() {
+            do {
+                try modelContext.save()
+            } catch {
+                NSLog("[Leo] Failed to save legacy PDF migration for '\(book.title)': \(error)")
+            }
+        }
+
         guard book.format == .pdf else { return }
-        let pdfPath = book.filePath
-        let pdfURL = URL(fileURLWithPath: pdfPath)
-        guard FileManager.default.fileExists(atPath: pdfPath) else {
-            pdfConvertError = "The PDF file is missing on disk."
+        guard pdfPreparationTasks[book.id] == nil else { return }
+
+        if let derivedEPUBPath = book.derivedEPUBPath,
+           !FileManager.default.fileExists(atPath: derivedEPUBPath) {
+            book.derivedEPUBPath = nil
+            book.pdfPreparationStatus = .idle
+            book.pdfPreparationError = nil
+        }
+
+        if book.pdfPreparationStatus == .preparing && !forceRetry {
+            NSLog("[Leo] Resuming incomplete Book View preparation for '\(book.title)'")
+        }
+
+        if book.pdfPreparationStatus == .failed && !forceRetry && !userInitiated {
             return
         }
 
-        // Ensure books directory exists — non-critical; LeoRuntime.prepareDirectories already does this on launch
-        try? FileManager.default.createDirectory(at: runtime.booksDirectory, withIntermediateDirectories: true)
-        let outURL = PDFConverter.uniqueSuggestedOutputURL(booksDirectory: runtime.booksDirectory, title: book.title)
-        let bookRef = book
+        if let derivedEPUBPath = book.derivedEPUBPath,
+           FileManager.default.fileExists(atPath: derivedEPUBPath),
+           !forceRetry {
+            if book.pdfPreparationStatus != .ready || book.pdfPreparationError != nil {
+                book.pdfPreparationStatus = .ready
+                book.pdfPreparationError = nil
+                do {
+                    try modelContext.save()
+                } catch {
+                    NSLog("[Leo] Failed to save ready Book View state for '\(book.title)': \(error)")
+                }
+            }
+            return
+        }
 
-        isConvertingPDF = true
-        // PDFKit + Vision OCR expect main-thread work; `Task.detached` often fails or hangs conversion.
-        Task { @MainActor in
-            defer { isConvertingPDF = false }
+        guard let pdfPath = book.sourcePDFPath,
+              FileManager.default.fileExists(atPath: pdfPath) else {
+            let message = "The source PDF is missing on disk."
+            book.pdfPreparationStatus = .failed
+            book.pdfPreparationError = message
+            if userInitiated {
+                pdfConvertError = message
+            }
             do {
-                try PDFConverter().convert(pdfURL: pdfURL, outputEPUBURL: outURL)
-                bookRef.originalPDFPath = pdfPath
-                bookRef.filePath = outURL.path
-                bookRef.format = .epub
-                bookRef.lastLocator = nil
-                LocalServer.shared.registerBook(id: bookRef.id.uuidString, filePath: bookRef.filePath)
                 try modelContext.save()
-                selectedBook = bookRef
             } catch {
-                pdfConvertError = error.localizedDescription
+                NSLog("[Leo] Failed to save missing PDF error for '\(book.title)': \(error)")
+            }
+            return
+        }
+
+        try? FileManager.default.createDirectory(at: runtime.booksDirectory, withIntermediateDirectories: true)
+        let outputURL: URL
+        if let existing = book.derivedEPUBPath {
+            outputURL = URL(fileURLWithPath: existing)
+        } else {
+            outputURL = PDFConverter.uniqueSuggestedOutputURL(booksDirectory: runtime.booksDirectory, title: book.title)
+        }
+
+        book.pdfPreparationStatus = .preparing
+        book.pdfPreparationError = nil
+        do {
+            try modelContext.save()
+        } catch {
+            NSLog("[Leo] Failed to save preparing state for '\(book.title)': \(error)")
+        }
+
+        let bookID = book.id
+        let pdfURL = URL(fileURLWithPath: pdfPath)
+        pdfPreparationTasks[bookID] = Task { @MainActor in
+            defer { pdfPreparationTasks.removeValue(forKey: bookID) }
+            do {
+                _ = try PDFConverter().convert(pdfURL: pdfURL, outputEPUBURL: outputURL)
+                book.derivedEPUBPath = outputURL.path
+                book.pdfPreparationStatus = .ready
+                book.pdfPreparationError = nil
+                LocalServer.shared.registerBook(id: book.id.uuidString, filePath: outputURL.path)
+                try modelContext.save()
+            } catch {
+                book.pdfPreparationStatus = .failed
+                book.pdfPreparationError = error.localizedDescription
+                if forceRetry && userInitiated {
+                    pdfConvertError = error.localizedDescription
+                }
+                do {
+                    try modelContext.save()
+                } catch {
+                    NSLog("[Leo] Failed to save Book View failure for '\(book.title)': \(error)")
+                }
             }
         }
     }
 
     private func deleteBook(_ book: Book) {
         let bookTitle = book.title
-        // Remove derived + source if we track it — best-effort, file may already be absent
-        do {
-            try FileManager.default.removeItem(atPath: book.filePath)
-        } catch {
-            NSLog("[Leo] Could not remove book file for '\(bookTitle)': \(error)")
+        pdfPreparationTasks[book.id]?.cancel()
+        pdfPreparationTasks.removeValue(forKey: book.id)
+
+        if FileManager.default.fileExists(atPath: book.filePath) {
+            do {
+                try FileManager.default.removeItem(atPath: book.filePath)
+            } catch {
+                NSLog("[Leo] Could not remove book file for '\(bookTitle)': \(error)")
+            }
+        }
+        if let derivedEPUBPath = book.derivedEPUBPath, derivedEPUBPath != book.filePath {
+            do {
+                try FileManager.default.removeItem(atPath: derivedEPUBPath)
+            } catch {
+                NSLog("[Leo] Could not remove derived Book View EPUB for '\(bookTitle)': \(error)")
+            }
         }
         if let original = book.originalPDFPath, original != book.filePath {
             do {
                 try FileManager.default.removeItem(atPath: original)
             } catch {
-                NSLog("[Leo] Could not remove original PDF for '\(bookTitle)': \(error)")
+                NSLog("[Leo] Could not remove legacy original PDF for '\(bookTitle)': \(error)")
             }
         }
         // Deselect if selected
@@ -375,6 +461,20 @@ struct ContentView: View {
         selectedBook = preferredSelection
     }
 
+    private func migrateLegacyPDFBooksIfNeeded() {
+        var didMigrate = false
+        for book in books where book.migrateLegacyConvertedPDFIfNeeded() {
+            didMigrate = true
+        }
+
+        guard didMigrate else { return }
+        do {
+            try modelContext.save()
+        } catch {
+            NSLog("[Leo] Failed to save legacy PDF migrations: \(error)")
+        }
+    }
+
     private var preferredSelection: Book? {
         books.max { lhs, rhs in
             effectiveOpenDate(for: lhs) < effectiveOpenDate(for: rhs)
@@ -391,6 +491,22 @@ struct ContentView: View {
 
     private func effectiveOpenDate(for book: Book) -> Date {
         book.lastOpenedAt ?? book.addedAt
+    }
+
+    private func existingBook(matchingLibraryFilename fileName: String) -> Book? {
+        let normalizedFileName = (fileName as NSString).lastPathComponent
+        let inMemoryMatches = books.filter { ($0.filePath as NSString).lastPathComponent == normalizedFileName }
+        if let existing = inMemoryMatches.max(by: { effectiveOpenDate(for: $0) < effectiveOpenDate(for: $1) }) {
+            return existing
+        }
+
+        let descriptor = FetchDescriptor<Book>()
+        guard let persisted = try? modelContext.fetch(descriptor) else {
+            return nil
+        }
+
+        let persistedMatches = persisted.filter { ($0.filePath as NSString).lastPathComponent == normalizedFileName }
+        return persistedMatches.max(by: { effectiveOpenDate(for: $0) < effectiveOpenDate(for: $1) })
     }
 
     /// Clean up ugly filenames into readable titles
@@ -413,7 +529,7 @@ struct LibrarySidebar: View {
     let onReview: () -> Void
     let onVocabulary: () -> Void
     let onDelete: (Book) -> Void
-    let onConvertPDFToEPUB: (Book) -> Void
+    let onPreparePDFBookView: (Book) -> Void
     @Query private var vocabulary: [VocabularyEntry]
     @Query private var dueCards: [FSRSCard]
 
@@ -505,9 +621,9 @@ struct LibrarySidebar: View {
                     .contextMenu {
                         if book.format == .pdf {
                             Button {
-                                onConvertPDFToEPUB(book)
+                                onPreparePDFBookView(book)
                             } label: {
-                                Label("Convert to EPUB for Reading…", systemImage: "arrow.triangle.2.circlepath")
+                                Label(book.hasPreparedBookView ? "Refresh Book View" : "Prepare Book View", systemImage: "arrow.triangle.2.circlepath")
                             }
                         }
                         Button(role: .destructive) {

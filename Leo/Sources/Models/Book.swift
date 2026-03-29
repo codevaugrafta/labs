@@ -17,8 +17,14 @@ final class Book {
     var lastLocator: Data?
     var addedAt: Date
     var lastOpenedAt: Date?
-    /// When set, this book was reflow-converted from a PDF at this path; `filePath` then points to the derived EPUB.
+    /// Legacy compatibility only. Older Leo builds rewrote PDF books into EPUBs and stored the source PDF here.
     var originalPDFPath: String?
+    var derivedEPUBPath: String?
+    var pdfPreparationStatusRaw: String
+    var pdfPreparationError: String?
+    var preferredPDFModeRaw: String
+    var pdfLastPageIndex: Int
+    var pdfFitPolicyRaw: String
 
     init(
         title: String,
@@ -35,6 +41,12 @@ final class Book {
         self.addedAt = Date()
         self.lastOpenedAt = nil
         self.originalPDFPath = nil
+        self.derivedEPUBPath = nil
+        self.pdfPreparationStatusRaw = (format == .pdf ? PDFBookPreparationStatus.idle : .ready).rawValue
+        self.pdfPreparationError = nil
+        self.preferredPDFModeRaw = PDFReadingMode.originalPDF.rawValue
+        self.pdfLastPageIndex = 0
+        self.pdfFitPolicyRaw = PDFPageFitPolicy.fitPage.rawValue
     }
 }
 
@@ -44,6 +56,65 @@ enum BookFormat: String, Codable {
 }
 
 extension Book {
+    var pdfPreparationStatus: PDFBookPreparationStatus {
+        get { PDFBookPreparationStatus(rawValue: pdfPreparationStatusRaw) ?? .idle }
+        set { pdfPreparationStatusRaw = newValue.rawValue }
+    }
+
+    var preferredPDFMode: PDFReadingMode {
+        get { PDFReadingMode(rawValue: preferredPDFModeRaw) ?? .originalPDF }
+        set { preferredPDFModeRaw = newValue.rawValue }
+    }
+
+    var pdfFitPolicy: PDFPageFitPolicy {
+        get { PDFPageFitPolicy(rawValue: pdfFitPolicyRaw) ?? .fitPage }
+        set { pdfFitPolicyRaw = newValue.rawValue }
+    }
+
+    var hasPreparedBookView: Bool {
+        guard let derivedEPUBPath else { return false }
+        return !derivedEPUBPath.isEmpty
+    }
+
+    var bookViewPath: String? {
+        switch format {
+        case .epub:
+            return filePath
+        case .pdf:
+            return derivedEPUBPath
+        }
+    }
+
+    var sourcePDFPath: String? {
+        switch format {
+        case .epub:
+            return originalPDFPath
+        case .pdf:
+            return filePath
+        }
+    }
+
+    var isLegacyConvertedPDF: Bool {
+        format == .epub && originalPDFPath != nil && derivedEPUBPath == nil
+    }
+
+    @discardableResult
+    func migrateLegacyConvertedPDFIfNeeded() -> Bool {
+        guard isLegacyConvertedPDF,
+              let sourcePDFPath = originalPDFPath,
+              !sourcePDFPath.isEmpty else {
+            return false
+        }
+
+        derivedEPUBPath = filePath
+        filePath = sourcePDFPath
+        format = .pdf
+        originalPDFPath = nil
+        pdfPreparationStatus = .ready
+        preferredPDFMode = .bookView
+        return true
+    }
+
     var locator: BookLocator? {
         get {
             guard let lastLocator else { return nil }

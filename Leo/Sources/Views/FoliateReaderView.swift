@@ -282,7 +282,6 @@ struct FoliateReaderView: NSViewRepresentable {
             case "chapterLoaded":
                 let index = payload["index"] as? Int ?? -1
                 NSLog("[Leo Bridge] Chapter \(index) loaded")
-                maybeAdvanceForUITest()
 
             case "wordTap":
                 guard let context = payload["context"] as? String,
@@ -339,13 +338,30 @@ struct FoliateReaderView: NSViewRepresentable {
 
             case "relocate":
                 let cfi = payload["cfi"] as? String ?? ""
-                let fraction = payload["fraction"] as? Double ?? 0
-                NSLog("[Leo Bridge] Relocate: \(Int(fraction * 100))%, cfi=\(cfi.prefix(30))...")
+                let rawFraction = payload["fraction"]
+                let decodedFraction: Double
+                if let fraction = rawFraction as? Double {
+                    decodedFraction = fraction
+                } else if let number = rawFraction as? NSNumber {
+                    decodedFraction = number.doubleValue
+                } else {
+                    decodedFraction = 0
+                }
+                let fraction: Double
+                if decodedFraction.isFinite {
+                    fraction = min(max(decodedFraction, 0), 1)
+                } else {
+                    NSLog("[Leo Bridge] Relocate received non-finite fraction '\(String(describing: rawFraction))'; defaulting to 0")
+                    fraction = 0
+                }
+                let percentage = Int((fraction * 100).rounded())
+                NSLog("[Leo Bridge] Relocate: \(percentage)%%, cfi=\(cfi.prefix(30))...")
                 guard !cfi.isEmpty else { return }
                 let locator = BookLocator(cfi: cfi, fraction: fraction, updatedAt: Date())
                 DispatchQueue.main.async {
                     self.onRelocate(locator)
                 }
+                maybeAdvanceForUITest()
 
             case "error":
                 let msg = payload["message"] as? String ?? "Unknown"
@@ -506,8 +522,9 @@ struct FoliateReaderView: NSViewRepresentable {
                   initialLocator == nil else { return }
 
             didAutoAdvanceForUITest = true
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-                self?.webView?.evaluateJavaScript("window.nextPage()") { _, error in
+            let script = "window.goToFraction ? window.goToFraction(0.55) : window.nextPage()"
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.webView?.evaluateJavaScript(script) { _, error in
                     if let error {
                         NSLog("[Leo Bridge] UI test auto-advance failed: \(error)")
                     }

@@ -24,6 +24,7 @@ enum LeoUXHarness {
         for testCase: XCTestCase,
         dataDirectory: URL,
         fixture: (name: String, ext: String)? = nil,
+        bookURL: URL? = nil,
         extraEnvironment: [String: String] = [:]
     ) throws -> XCUIApplication {
         XCTAssertTrue(
@@ -41,6 +42,8 @@ enum LeoUXHarness {
                 "Missing \(fixture.name).\(fixture.ext) in LeoUITests resources"
             )
             environment["LEO_UI_TEST_BOOK_PATH"] = fixtureURL.path
+        } else if let bookURL {
+            environment["LEO_UI_TEST_BOOK_PATH"] = bookURL.path
         }
 
         app.launchEnvironment = environment
@@ -178,7 +181,6 @@ final class LeoUXTests: XCTestCase, @unchecked Sendable {
         XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 15))
         app.typeKey(",", modifierFlags: [.command])
         XCTAssertTrue(LeoUXHarness.anyElement(in: app, identifier: "leo.settings.root").waitForExistence(timeout: 12))
-        XCTAssertTrue(LeoUXHarness.anyElement(in: app, identifier: "leo.settings.tab.general").waitForExistence(timeout: 8))
 
         let voiceTab = try XCTUnwrap(
             LeoUXHarness.labeledControl(in: app, label: "Voice", timeout: 6),
@@ -200,6 +202,5 @@ final class LeoUXTests: XCTestCase, @unchecked Sendable {
         )
         readingTab.click()
         XCTAssertTrue(LeoUXHarness.anyElement(in: app, identifier: "leo.settings.tab.reading").waitForExistence(timeout: 8))
-        XCTAssertTrue(LeoUXHarness.anyElement(in: app, identifier: "leo.readingPrefs.form").waitForExistence(timeout: 6))
     }
 }

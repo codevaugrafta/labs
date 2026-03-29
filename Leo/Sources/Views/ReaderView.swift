@@ -1,6 +1,5 @@
 import SwiftUI
 import WebKit
-import PDFKit
 
 // Lightweight reference-type bridge so ReaderView can call back into the WKWebView
 // coordinator without needing to hold a strong retain cycle or use a global.
@@ -10,6 +9,8 @@ final class ReaderCoordinatorBridge: ObservableObject {
 
 struct ReaderView: View {
     let book: Book
+    let onPreparePDFBookView: (Book) -> Void
+    let onRetryPDFBookView: (Book) -> Void
     @State private var theme: ReadingTheme = .light
     @State private var readerFailureMessage: String?
     @State private var familiarityTracker: FamiliarityTracker?
@@ -24,7 +25,16 @@ struct ReaderView: View {
     @AppStorage("leo.showPinyin") private var readingShowPinyin = false
     @AppStorage("leo.showHighlights") private var readingShowHighlights = true
     @AppStorage("leo.textDirection") private var readingTextDirection = "horizontal"
+    @AppStorage("leo.pdf.layoutMode") private var storedPDFLayoutMode = PDFPageLayoutMode.continuous.rawValue
+    @AppStorage("leo.pdf.scrollAxis") private var storedPDFScrollAxis = PDFScrollAxis.vertical.rawValue
+    @AppStorage("leo.pdf.fitPolicy") private var storedPDFFitPolicy = PDFPageFitPolicy.fitPage.rawValue
+    @AppStorage("leo.pdf.explainerDismissed") private var pdfExplainerDismissed = false
     @State private var showReadingChromePopover = false
+    @State private var showPDFLayoutPopover = false
+    @State private var pdfLayoutMode: PDFPageLayoutMode = .continuous
+    @State private var pdfScrollAxis: PDFScrollAxis = .vertical
+    @State private var pdfFitPolicy: PDFPageFitPolicy = .fitPage
+    @State private var activePDFMode: PDFReadingMode = .originalPDF
 
     // TOC state
     @State private var showTOCPanel = false
@@ -35,20 +45,28 @@ struct ReaderView: View {
     @State private var uiTestDictionarySummary: String?
     @State private var uiTestLocatorSummary: String?
     @State private var uiTestRelocationCount = 0
+    @State private var uiTestPDFPageSummary: String?
 
     var body: some View {
         ZStack(alignment: .top) {
             Group {
-                if book.format == .pdf {
-                    PDFReaderView(filePath: book.filePath)
+                if showsOriginalPDF {
+                    PDFReaderView(
+                        filePath: book.filePath,
+                        initialPageIndex: book.pdfLastPageIndex,
+                        layoutMode: pdfLayoutMode,
+                        scrollAxis: pdfScrollAxis,
+                        fitPolicy: pdfFitPolicy,
+                        onPageChanged: persistPDFPage
+                    )
                 } else if let failureMessage = activeFailureMessage {
                     ReaderFailureView(
                         message: failureMessage,
                         onRetry: retryReader
                     )
-                } else {
+                } else if let foliateFilePath = currentFoliateFilePath {
                     FoliateReaderView(
-                        bookFilePath: book.filePath,
+                        bookFilePath: foliateFilePath,
                         bookId: book.id.uuidString,
                         theme: theme,
                         initialLocator: book.locator,
@@ -78,30 +96,32 @@ struct ReaderView: View {
                             coordinatorBridge.coordinator = coord
                         }
                     )
+                } else {
+                    ReaderFailureView(
+                        message: book.pdfPreparationError ?? "Leo couldn’t open Book View for this PDF yet.",
+                        onRetry: { onRetryPDFBookView(book) }
+                    )
                 }
             }
 
             if book.format == .pdf {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Tap-to-define and read-aloud use the EPUB reader. PDF is view-only here — convert to reflowable EPUB to use them.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Button("Convert to EPUB for Reading…") {
-                        NotificationCenter.default.post(name: .leoRequestPDFConvert, object: book.id)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.small)
-                }
-                .padding(8)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.regularMaterial)
-                .accessibilityIdentifier("leo.reader.pdfViewOnlyBanner")
+                PDFBookStatusBanner(
+                    status: book.pdfPreparationStatus,
+                    activeMode: activePDFMode,
+                    bookViewReady: bookViewReady,
+                    explanationDismissed: pdfExplainerDismissed,
+                    failureMessage: book.pdfPreparationError,
+                    onDismissExplanation: { pdfExplainerDismissed = true },
+                    onPrepare: { onPreparePDFBookView(book) },
+                    onRetry: { onRetryPDFBookView(book) },
+                    onOpenBookView: { selectPDFMode(.bookView) }
+                )
             }
 
         }
         .overlay(alignment: .topLeading) {
             VStack(alignment: .leading, spacing: 6) {
-                if let summary = uiTestDictionarySummary {
+                if let summary = uiTestDictionarySummary, usesFoliateReader {
                     Text(summary)
                         .font(.caption2)
                         .foregroundStyle(.secondary)
@@ -112,7 +132,7 @@ struct ReaderView: View {
                         .accessibilityLabel(summary)
                 }
 
-                if let locatorSummary = uiTestLocatorSummary {
+                if let locatorSummary = uiTestLocatorSummary, usesFoliateReader {
                     Text(locatorSummary)
                         .font(.system(.caption2, design: .monospaced))
                         .foregroundStyle(.secondary)
@@ -124,23 +144,53 @@ struct ReaderView: View {
                         .accessibilityLabel(locatorSummary)
                         .accessibilityValue(locatorSummary)
                 }
+
+                if let pdfPageSummary = uiTestPDFPageSummary, showsOriginalPDF {
+                    Text(pdfPageSummary)
+                        .font(.system(.caption2, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .padding(6)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                        .accessibilityIdentifier("leo.reader.pdfPageProbe")
+                        .accessibilityLabel(pdfPageSummary)
+                        .accessibilityValue(pdfPageSummary)
+                }
             }
             .padding(.top, 4)
             .zIndex(10_000)
         }
         .toolbar {
-            // Theme picker
-            ToolbarItem(placement: .automatic) {
-                Picker("Theme", selection: $theme) {
-                    ForEach(ReadingTheme.allCases) { t in
-                        Text(t.label).tag(t)
+            if book.format == .pdf {
+                ToolbarItemGroup(placement: .automatic) {
+                    Button("Original PDF") {
+                        selectPDFMode(.originalPDF)
                     }
+                    .accessibilityIdentifier("leo.toolbar.pdfMode.original")
+                    .buttonStyle(.bordered)
+                    .tint(activePDFMode == .originalPDF ? .accentColor : .secondary)
+
+                    Button("Book View") {
+                        selectPDFMode(.bookView)
+                    }
+                    .accessibilityIdentifier("leo.toolbar.pdfMode.book")
+                    .buttonStyle(.bordered)
+                    .tint(activePDFMode == .bookView ? .accentColor : .secondary)
+                    .disabled(!bookViewReady)
                 }
-                .pickerStyle(.segmented)
-                .accessibilityIdentifier("leo.toolbar.theme")
             }
 
-            if book.format != .pdf {
+            if usesFoliateReader {
+                ToolbarItem(placement: .automatic) {
+                    Picker("Theme", selection: $theme) {
+                        ForEach(ReadingTheme.allCases) { t in
+                            Text(t.label).tag(t)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("leo.toolbar.theme")
+                }
+
                 // TOC button
                 ToolbarItem(placement: .automatic) {
                     Button {
@@ -179,10 +229,28 @@ struct ReaderView: View {
                         .frame(minWidth: 320, minHeight: 280)
                     }
                 }
+            } else if book.format == .pdf {
+                ToolbarItem(placement: .automatic) {
+                    Button {
+                        showPDFLayoutPopover.toggle()
+                    } label: {
+                        Label("PDF layout", systemImage: "rectangle.split.3x1")
+                    }
+                    .accessibilityIdentifier("leo.toolbar.pdfLayout")
+                    .popover(isPresented: $showPDFLayoutPopover, arrowEdge: .bottom) {
+                        PDFLayoutPreferencesForm(
+                            layoutMode: $pdfLayoutMode,
+                            scrollAxis: $pdfScrollAxis,
+                            fitPolicy: $pdfFitPolicy
+                        )
+                        .padding()
+                        .frame(minWidth: 360, minHeight: 240)
+                    }
+                }
             }
 
             // Reading session timer
-            if book.format != .pdf {
+            if usesFoliateReader {
                 ToolbarItemGroup(placement: .automatic) {
                     if ttsEngine.isLoading {
                         ProgressView()
@@ -233,7 +301,7 @@ struct ReaderView: View {
                 }
             }
         }
-        .task {
+        .task(id: book.id) {
             // Single load pass — concurrent load() calls corrupt DictionaryEngine's `loaded` flag.
             await Task.detached(priority: .userInitiated) {
                 DictionaryEngine.shared.load()
@@ -242,28 +310,66 @@ struct ReaderView: View {
             }.value
             familiarityTracker = FamiliarityTracker(modelContext: modelContext)
             sessionEngine.configure(modelContext: modelContext)
+            configurePDFPresentationFromStoredState()
             markBookOpened()
-
-            if ProcessInfo.processInfo.environment["LEO_UI_TEST_SHOW_LOOKUP"] == "1", book.format != .pdf {
-                let word = ProcessInfo.processInfo.environment["LEO_UI_TEST_LOOKUP_WORD"] ?? "你好"
-                let entries = DictionaryEngine.shared.lookup(word)
-                let def = entries.first?.definitions.first ?? ""
-                uiTestDictionarySummary = "\(word): \(String(def.prefix(120)))"
+            if book.format == .pdf {
+                onPreparePDFBookView(book)
             }
-
-            if ProcessInfo.processInfo.environment["LEO_UI_TEST_CAPTURE_LOCATOR"] == "1",
-               let locator = book.locator {
-                uiTestRelocationCount = 1
-                uiTestLocatorSummary = locatorSummary(for: locator, relocationCount: uiTestRelocationCount)
-            } else if ProcessInfo.processInfo.environment["LEO_UI_TEST_CAPTURE_LOCATOR"] == "1" {
-                uiTestRelocationCount = 0
-                uiTestLocatorSummary = "count=0 fraction=0.000 cfi=pending"
+            refreshUITestState()
+        }
+        .onChange(of: activePDFMode) { _, newValue in
+            guard book.format == .pdf else { return }
+            book.preferredPDFMode = newValue
+            saveBookState(context: "preferred PDF mode")
+            refreshUITestState()
+        }
+        .onChange(of: pdfLayoutMode) { _, newValue in
+            storedPDFLayoutMode = newValue.rawValue
+        }
+        .onChange(of: pdfScrollAxis) { _, newValue in
+            storedPDFScrollAxis = newValue.rawValue
+        }
+        .onChange(of: pdfFitPolicy) { _, newValue in
+            storedPDFFitPolicy = newValue.rawValue
+            guard book.format == .pdf else { return }
+            book.pdfFitPolicy = newValue
+            saveBookState(context: "PDF fit policy")
+            refreshUITestState()
+        }
+        .onChange(of: book.pdfPreparationStatusRaw) { _, _ in
+            if !bookViewReady && activePDFMode == .bookView {
+                activePDFMode = .originalPDF
             }
+            refreshUITestState()
         }
     }
 
     private var activeFailureMessage: String? {
         readerFailureMessage ?? runtime.readerServerState.failureMessage
+    }
+
+    private var currentFoliateFilePath: String? {
+        if book.format == .pdf {
+            return bookViewReady && activePDFMode == .bookView ? book.bookViewPath : nil
+        }
+        return book.filePath
+    }
+
+    private var bookViewReady: Bool {
+        guard book.format == .pdf,
+              book.pdfPreparationStatus == .ready,
+              let path = book.bookViewPath else {
+            return false
+        }
+        return FileManager.default.fileExists(atPath: path)
+    }
+
+    private var showsOriginalPDF: Bool {
+        book.format == .pdf && (activePDFMode == .originalPDF || !bookViewReady)
+    }
+
+    private var usesFoliateReader: Bool {
+        book.format != .pdf || (bookViewReady && activePDFMode == .bookView)
     }
 
     // Called by the coordinator immediately after resolving the tapped word.
@@ -312,24 +418,42 @@ struct ReaderView: View {
     private func persistLocation(_ locator: BookLocator) {
         let previousLocator = book.locator
         let previousFraction = previousLocator?.fraction ?? -1
+        let isUITestLocatorCapture = ProcessInfo.processInfo.environment["LEO_UI_TEST_CAPTURE_LOCATOR"] == "1"
+        let minimumFractionDelta = isUITestLocatorCapture ? 0.0001 : 0.002
         let shouldSave =
             previousLocator?.cfi != locator.cfi
-            || abs(previousFraction - locator.fraction) >= 0.002
+            || abs(previousFraction - locator.fraction) >= minimumFractionDelta
             || book.lastOpenedAt == nil
 
         guard shouldSave else { return }
 
         book.locator = locator
         book.lastOpenedAt = locator.updatedAt
-        do {
-            try modelContext.save()
-        } catch {
-            NSLog("[Leo ReaderView] Failed to persist reading position for '\(book.title)': \(error)")
-        }
+        saveBookState(context: "EPUB reading position")
 
         if ProcessInfo.processInfo.environment["LEO_UI_TEST_CAPTURE_LOCATOR"] == "1" {
             uiTestRelocationCount += 1
             uiTestLocatorSummary = locatorSummary(for: locator, relocationCount: uiTestRelocationCount)
+        }
+    }
+
+    private func persistPDFPage(_ pageIndex: Int) {
+        guard book.format == .pdf else { return }
+        let normalizedPageIndex = max(0, pageIndex)
+        let shouldSave = book.pdfLastPageIndex != normalizedPageIndex || book.lastOpenedAt == nil
+        guard shouldSave else {
+            if ProcessInfo.processInfo.environment["LEO_UI_TEST_CAPTURE_PDF_PAGE"] == "1" {
+                uiTestPDFPageSummary = pdfPageSummary(for: normalizedPageIndex)
+            }
+            return
+        }
+
+        book.pdfLastPageIndex = normalizedPageIndex
+        book.lastOpenedAt = Date()
+        saveBookState(context: "PDF page position")
+
+        if ProcessInfo.processInfo.environment["LEO_UI_TEST_CAPTURE_PDF_PAGE"] == "1" {
+            uiTestPDFPageSummary = pdfPageSummary(for: normalizedPageIndex)
         }
     }
 
@@ -349,6 +473,59 @@ struct ReaderView: View {
         runtime.startEmbeddedReader(forceRestart: true)
     }
 
+    private func configurePDFPresentationFromStoredState() {
+        guard book.format == .pdf else { return }
+        pdfLayoutMode = PDFPageLayoutMode(rawValue: storedPDFLayoutMode) ?? .continuous
+        pdfScrollAxis = PDFScrollAxis(rawValue: storedPDFScrollAxis) ?? .vertical
+
+        let storedFitPolicy = PDFPageFitPolicy(rawValue: storedPDFFitPolicy) ?? .fitPage
+        let shouldUseStoredFitPolicy = book.lastOpenedAt == nil && book.pdfLastPageIndex == 0
+        pdfFitPolicy = shouldUseStoredFitPolicy ? storedFitPolicy : book.pdfFitPolicy
+
+        activePDFMode = (book.preferredPDFMode == .bookView && bookViewReady) ? .bookView : .originalPDF
+        if ProcessInfo.processInfo.environment["LEO_UI_TEST_CAPTURE_PDF_PAGE"] == "1" {
+            uiTestPDFPageSummary = pdfPageSummary(for: book.pdfLastPageIndex)
+        }
+    }
+
+    private func selectPDFMode(_ mode: PDFReadingMode) {
+        guard book.format == .pdf else { return }
+        if mode == .bookView && !bookViewReady {
+            return
+        }
+        activePDFMode = mode
+    }
+
+    private func refreshUITestState() {
+        if ProcessInfo.processInfo.environment["LEO_UI_TEST_SHOW_LOOKUP"] == "1", usesFoliateReader {
+            let word = ProcessInfo.processInfo.environment["LEO_UI_TEST_LOOKUP_WORD"] ?? "你好"
+            let entries = DictionaryEngine.shared.lookup(word)
+            let def = entries.first?.definitions.first ?? ""
+            uiTestDictionarySummary = "\(word): \(String(def.prefix(120)))"
+        } else {
+            uiTestDictionarySummary = nil
+        }
+
+        if ProcessInfo.processInfo.environment["LEO_UI_TEST_CAPTURE_LOCATOR"] == "1", usesFoliateReader {
+            if let locator = book.locator {
+                uiTestRelocationCount = max(uiTestRelocationCount, 1)
+                uiTestLocatorSummary = locatorSummary(for: locator, relocationCount: uiTestRelocationCount)
+            } else {
+                uiTestRelocationCount = 0
+                uiTestLocatorSummary = "count=0 fraction=0.000 cfi=pending"
+            }
+        } else {
+            uiTestLocatorSummary = nil
+            uiTestRelocationCount = 0
+        }
+
+        if ProcessInfo.processInfo.environment["LEO_UI_TEST_CAPTURE_PDF_PAGE"] == "1", showsOriginalPDF {
+            uiTestPDFPageSummary = pdfPageSummary(for: book.pdfLastPageIndex)
+        } else if !showsOriginalPDF {
+            uiTestPDFPageSummary = nil
+        }
+    }
+
     private func markBookOpened() {
         let now = Date()
         if let lastOpenedAt = book.lastOpenedAt,
@@ -366,27 +543,18 @@ struct ReaderView: View {
     private func locatorSummary(for locator: BookLocator, relocationCount: Int) -> String {
         "count=\(relocationCount) fraction=\(String(format: "%.3f", locator.fraction)) cfi=\(String(locator.cfi.prefix(72)))"
     }
-}
 
-// MARK: - PDF Reader (Apple PDFKit — native, works for Chinese visual rendering)
-
-struct PDFReaderView: NSViewRepresentable {
-    let filePath: String
-
-    func makeNSView(context: Context) -> PDFView {
-        let pdfView = PDFView()
-        pdfView.autoScales = true
-        pdfView.displayMode = .singlePageContinuous
-        pdfView.displayDirection = .vertical
-        pdfView.backgroundColor = .windowBackgroundColor
-
-        if let document = PDFDocument(url: URL(fileURLWithPath: filePath)) {
-            pdfView.document = document
-        }
-        return pdfView
+    private func pdfPageSummary(for pageIndex: Int) -> String {
+        "page=\(pageIndex + 1) fit=\(pdfFitPolicy.rawValue)"
     }
 
-    func updateNSView(_ pdfView: PDFView, context: Context) {}
+    private func saveBookState(context: String) {
+        do {
+            try modelContext.save()
+        } catch {
+            NSLog("[Leo ReaderView] Failed to save \(context) for '\(book.title)': \(error)")
+        }
+    }
 }
 
 // MARK: - Reading Theme
@@ -427,6 +595,89 @@ private struct ReaderFailureView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color(nsColor: .textBackgroundColor))
         .accessibilityIdentifier("leo.reader.failure")
+    }
+}
+
+private struct PDFBookStatusBanner: View {
+    let status: PDFBookPreparationStatus
+    let activeMode: PDFReadingMode
+    let bookViewReady: Bool
+    let explanationDismissed: Bool
+    let failureMessage: String?
+    let onDismissExplanation: () -> Void
+    let onPrepare: () -> Void
+    let onRetry: () -> Void
+    let onOpenBookView: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if !explanationDismissed {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Original PDF keeps the real pages. Book View gives you Leo’s dictionary, TTS, and reading tools.")
+                        .font(.caption)
+                    Button("Got it", action: onDismissExplanation)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                }
+                .accessibilityIdentifier("leo.reader.pdfExplainer")
+            }
+
+            switch status {
+            case .idle:
+                HStack(spacing: 8) {
+                    Text("Book View is available on this PDF once Leo prepares it.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Button("Prepare Book View", action: onPrepare)
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.small)
+                        .accessibilityIdentifier("leo.reader.prepareBookView")
+                }
+
+            case .preparing:
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .controlSize(.small)
+                    Text("Preparing Book View in the background…")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityIdentifier("leo.reader.bookViewPreparing")
+
+            case .ready:
+                HStack(spacing: 8) {
+                    Text(activeMode == .bookView ? "Book View is ready." : "Book View is ready whenever you want Leo’s reading tools.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if bookViewReady && activeMode != .bookView {
+                        Button("Open Book View", action: onOpenBookView)
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                            .accessibilityIdentifier("leo.reader.openBookView")
+                    }
+                }
+
+            case .failed:
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Book View unavailable")
+                        .font(.caption.weight(.semibold))
+                    if let failureMessage, !failureMessage.isEmpty {
+                        Text(failureMessage)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Button("Retry Book View", action: onRetry)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .accessibilityIdentifier("leo.reader.retryBookView")
+                }
+                .accessibilityIdentifier("leo.reader.bookViewUnavailable")
+            }
+        }
+        .padding(10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.regularMaterial)
+        .accessibilityIdentifier("leo.reader.pdfModeBanner")
     }
 }
 

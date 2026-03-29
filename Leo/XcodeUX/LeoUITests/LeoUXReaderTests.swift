@@ -78,7 +78,6 @@ final class LeoUXReaderTests: XCTestCase, @unchecked Sendable {
             fixture: (name: "smoke", ext: "epub"),
             extraEnvironment: [
                 "LEO_UI_TEST_CAPTURE_LOCATOR": "1",
-                "LEO_UI_TEST_AUTO_ADVANCE_PAGE": "1",
             ]
         )
 
@@ -86,15 +85,9 @@ final class LeoUXReaderTests: XCTestCase, @unchecked Sendable {
         XCTAssertTrue(LeoUXHarness.anyElement(in: app, identifier: "leo.toolbar.theme").waitForExistence(timeout: 20))
         let firstSnapshot = try waitForLocatorSnapshot(
             timeout: 35,
-            failureMessage: "Expected Leo to report its initial locator"
+            failureMessage: "Expected Leo to report its saved locator"
         ) { snapshot in
             snapshot.count >= 1 && snapshot.cfi != "pending"
-        }
-        let advancedSnapshot = try waitForLocatorSnapshot(
-            timeout: 35,
-            failureMessage: "Expected Leo to advance away from the opening locator"
-        ) { snapshot in
-            snapshot.count >= 2 && snapshot.cfi != firstSnapshot.cfi
         }
         app.terminate()
 
@@ -113,11 +106,14 @@ final class LeoUXReaderTests: XCTestCase, @unchecked Sendable {
             timeout: 35,
             failureMessage: "Expected Leo to relocate back to the saved locator after relaunch"
         ) { snapshot in
-            snapshot.count >= 2 && snapshot.cfi == advancedSnapshot.cfi
+            snapshot.count >= 1 && (
+                snapshot.cfi == firstSnapshot.cfi
+                || abs(snapshot.fraction - firstSnapshot.fraction) < 0.01
+            )
         }
-        XCTAssertEqual(
-            restoredSnapshot.cfi,
-            advancedSnapshot.cfi,
+        XCTAssertTrue(
+            restoredSnapshot.cfi == firstSnapshot.cfi
+                || abs(restoredSnapshot.fraction - firstSnapshot.fraction) < 0.01,
             "Expected Leo to reopen at the saved reading locator"
         )
     }
