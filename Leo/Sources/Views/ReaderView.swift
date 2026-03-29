@@ -321,7 +321,11 @@ struct ReaderView: View {
 
         book.locator = locator
         book.lastOpenedAt = locator.updatedAt
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            NSLog("[Leo ReaderView] Failed to persist reading position for '\(book.title)': \(error)")
+        }
 
         if ProcessInfo.processInfo.environment["LEO_UI_TEST_CAPTURE_LOCATOR"] == "1" {
             uiTestRelocationCount += 1
@@ -352,7 +356,11 @@ struct ReaderView: View {
             return
         }
         book.lastOpenedAt = now
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            NSLog("[Leo ReaderView] Failed to save lastOpenedAt for '\(book.title)': \(error)")
+        }
     }
 
     private func locatorSummary(for locator: BookLocator, relocationCount: Int) -> String {

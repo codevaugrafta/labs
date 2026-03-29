@@ -129,6 +129,8 @@ final class LeoRuntime: ObservableObject {
     }
 
     private func prepareDirectories() {
+        // Best-effort: these directories may already exist. Errors here are non-fatal —
+        // book import will fail with a user-visible error if the directory is truly unusable.
         try? fileManager.createDirectory(at: paths.rootDirectory, withIntermediateDirectories: true)
         try? fileManager.createDirectory(at: paths.booksDirectory, withIntermediateDirectories: true)
     }

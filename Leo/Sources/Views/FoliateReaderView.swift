@@ -201,10 +201,19 @@ struct FoliateReaderView: NSViewRepresentable {
                     return
                 }
                 guard let jsonString = result as? String,
-                      let data = jsonString.data(using: .utf8),
-                      let rawItems = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]]
-                else {
+                      let data = jsonString.data(using: .utf8) else {
                     NSLog("[Leo Bridge] requestTOC: unexpected result \(String(describing: result))")
+                    return
+                }
+                let rawItems: [[String: Any]]
+                do {
+                    guard let parsed = try JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+                        NSLog("[Leo Bridge] requestTOC: JSON root is not an array of objects")
+                        return
+                    }
+                    rawItems = parsed
+                } catch {
+                    NSLog("[Leo Bridge] requestTOC: failed to parse TOC JSON: \(error)")
                     return
                 }
                 let items = rawItems.compactMap { d -> TOCItem? in
@@ -221,8 +230,19 @@ struct FoliateReaderView: NSViewRepresentable {
 
         /// Navigates the reader to a TOC item by href.
         func goToTocItem(_ href: String) {
-            guard let encoded = try? JSONSerialization.data(withJSONObject: href),
-                  let literal = String(data: encoded, encoding: .utf8) else { return }
+            let encoded: Data
+            let literal: String
+            do {
+                encoded = try JSONSerialization.data(withJSONObject: href)
+                guard let str = String(data: encoded, encoding: .utf8) else {
+                    NSLog("[Leo Bridge] goToTocItem: failed to decode JSON bytes as UTF-8 for href '\(href)'")
+                    return
+                }
+                literal = str
+            } catch {
+                NSLog("[Leo Bridge] goToTocItem: failed to serialize href '\(href)': \(error)")
+                return
+            }
             webView?.evaluateJavaScript("window.goToTocItem(\(literal))") { _, error in
                 if let error {
                     NSLog("[Leo Bridge] goToTocItem error: \(error)")
@@ -381,9 +401,16 @@ struct FoliateReaderView: NSViewRepresentable {
                 popupData["grammar"] = grammarPayload
             }
 
-            guard let jsonData = try? JSONSerialization.data(withJSONObject: popupData),
-                  let jsonStr = String(data: jsonData, encoding: .utf8) else {
-                NSLog("[Leo Bridge] Failed to serialize popup data")
+            let jsonStr: String
+            do {
+                let jsonData = try JSONSerialization.data(withJSONObject: popupData)
+                guard let str = String(data: jsonData, encoding: .utf8) else {
+                    NSLog("[Leo Bridge] showPopupInJS: popup JSON not valid UTF-8 for word '\(word)'")
+                    return
+                }
+                jsonStr = str
+            } catch {
+                NSLog("[Leo Bridge] showPopupInJS: failed to serialize popup data for word '\(word)': \(error)")
                 return
             }
 
@@ -412,8 +439,16 @@ struct FoliateReaderView: NSViewRepresentable {
                         apiKey: apiKey,
                         model: model
                     )
-                    guard let encoded = try? JSONSerialization.data(withJSONObject: text),
-                          let jsLiteral = String(data: encoded, encoding: .utf8) else {
+                    let jsLiteral: String
+                    do {
+                        let encoded = try JSONSerialization.data(withJSONObject: text)
+                        guard let str = String(data: encoded, encoding: .utf8) else {
+                            NSLog("[Leo Bridge] scheduleContextualLookup: context JSON not valid UTF-8 for word '\(word)'")
+                            return
+                        }
+                        jsLiteral = str
+                    } catch {
+                        NSLog("[Leo Bridge] scheduleContextualLookup: failed to serialize context for word '\(word)': \(error)")
                         return
                     }
                     await MainActor.run {
@@ -436,13 +471,20 @@ struct FoliateReaderView: NSViewRepresentable {
                 NSLog("[Leo Bridge] ERROR: No URL for book \(bookId)")
                 return
             }
-            guard
-                let requestData = try? JSONSerialization.data(withJSONObject: [
+            let requestJSON: String
+            do {
+                let requestData = try JSONSerialization.data(withJSONObject: [
                     "url": bookURL.absoluteString,
                     "locator": initialLocator?.cfi ?? "",
-                ]),
-                let requestJSON = String(data: requestData, encoding: .utf8)
-            else {
+                ])
+                guard let str = String(data: requestData, encoding: .utf8) else {
+                    NSLog("[Leo Bridge] openCurrentBook: failed to decode request JSON as UTF-8")
+                    onLoadError("Leo couldn’t prepare the selected book for reading.")
+                    return
+                }
+                requestJSON = str
+            } catch {
+                NSLog("[Leo Bridge] openCurrentBook: failed to serialize book request: \(error)")
                 onLoadError("Leo couldn’t prepare the selected book for reading.")
                 return
             }
@@ -495,10 +537,18 @@ struct FoliateReaderView: NSViewRepresentable {
             case .dark: ["bg": "#1E1E1E", "fg": "#D4D4D4"]
             case .sepia: ["bg": "#F5EDDC", "fg": "#4A3520"]
             }
-            guard
-                let themeJSON = try? JSONSerialization.data(withJSONObject: themeData),
-                let themeStr = String(data: themeJSON, encoding: .utf8)
-            else { return }
+            let themeStr: String
+            do {
+                let themeJSON = try JSONSerialization.data(withJSONObject: themeData)
+                guard let str = String(data: themeJSON, encoding: .utf8) else {
+                    NSLog("[Leo Bridge] pushReaderChrome: theme JSON not valid UTF-8")
+                    return
+                }
+                themeStr = str
+            } catch {
+                NSLog("[Leo Bridge] pushReaderChrome: failed to serialize theme: \(error)")
+                return
+            }
 
             let prefs: [String: Any] = [
                 "fontSizePt": latestReading.fontSize,
@@ -507,10 +557,18 @@ struct FoliateReaderView: NSViewRepresentable {
                 "showPinyin": latestReading.showPinyin,
                 "showHighlights": latestReading.showHighlights,
             ]
-            guard
-                let prefsJSON = try? JSONSerialization.data(withJSONObject: prefs),
-                let prefsStr = String(data: prefsJSON, encoding: .utf8)
-            else { return }
+            let prefsStr: String
+            do {
+                let prefsJSON = try JSONSerialization.data(withJSONObject: prefs)
+                guard let str = String(data: prefsJSON, encoding: .utf8) else {
+                    NSLog("[Leo Bridge] pushReaderChrome: prefs JSON not valid UTF-8")
+                    return
+                }
+                prefsStr = str
+            } catch {
+                NSLog("[Leo Bridge] pushReaderChrome: failed to serialize prefs: \(error)")
+                return
+            }
 
             let js = "setTheme(\(themeStr)); applyReadingPreferences(\(prefsStr));"
             webView.evaluateJavaScript(js) { _, error in

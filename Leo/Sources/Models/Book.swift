@@ -47,10 +47,20 @@ extension Book {
     var locator: BookLocator? {
         get {
             guard let lastLocator else { return nil }
-            return try? JSONDecoder().decode(BookLocator.self, from: lastLocator)
+            do {
+                return try JSONDecoder().decode(BookLocator.self, from: lastLocator)
+            } catch {
+                NSLog("[Leo Book] Failed to decode BookLocator for '\(title)': \(error)")
+                return nil
+            }
         }
         set {
-            lastLocator = try? newValue.map { try JSONEncoder().encode($0) }
+            do {
+                lastLocator = try newValue.map { try JSONEncoder().encode($0) }
+            } catch {
+                NSLog("[Leo Book] Failed to encode BookLocator for '\(title)': \(error)")
+                // lastLocator is left unchanged — prefer stale position over silent data loss
+            }
         }
     }
 }

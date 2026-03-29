@@ -164,6 +164,7 @@ struct ContentView: View {
         }
         let destination = runtime.booksDirectory.appendingPathComponent(fileName)
         if FileManager.default.fileExists(atPath: destination.path) {
+            // Pre-copy cleanup — non-critical; copy below will fail with its own error if needed
             try? FileManager.default.removeItem(at: destination)
         }
         do {
@@ -176,7 +177,11 @@ struct ContentView: View {
         let title = cleanTitle(from: source.deletingPathExtension().lastPathComponent)
         let book = Book(title: title, author: "", filePath: destination.path, format: format)
         modelContext.insert(book)
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            NSLog("[Leo] UI test: failed to save book '\(title)': \(error)")
+        }
         selectedBook = book
     }
 
@@ -189,7 +194,11 @@ struct ContentView: View {
         if let existing = engine.card(for: word) {
             existing.dueDate = Date(timeIntervalSince1970: 0)
             existing.state = .review
-            try? modelContext.save()
+            do {
+                try modelContext.save()
+            } catch {
+                NSLog("[Leo] UI test: failed to update FSRS card for '\(word)': \(error)")
+            }
             return
         }
         let card = FSRSCard(word: word)
@@ -199,7 +208,11 @@ struct ContentView: View {
         card.difficulty = 5.0
         card.reviewCount = 1
         modelContext.insert(card)
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            NSLog("[Leo] UI test: failed to save FSRS card for '\(word)': \(error)")
+        }
     }
 
     /// Uses `NSOpenPanel` so book import is reliable with a single SwiftUI `.fileImporter` (Anki) on this screen.
@@ -250,7 +263,12 @@ struct ContentView: View {
 
         let destination = runtime.booksDirectory.appendingPathComponent(fileName)
         if FileManager.default.fileExists(atPath: destination.path) {
-            try? FileManager.default.removeItem(at: destination)
+            // Pre-copy cleanup — non-critical; copy below will fail with its own error if needed
+            do {
+                try FileManager.default.removeItem(at: destination)
+            } catch {
+                NSLog("[Leo] Failed to remove existing file at destination before copy: \(error)")
+            }
         }
         do {
             try FileManager.default.copyItem(at: url, to: destination)
@@ -287,6 +305,7 @@ struct ContentView: View {
             return
         }
 
+        // Ensure books directory exists — non-critical; LeoRuntime.prepareDirectories already does this on launch
         try? FileManager.default.createDirectory(at: runtime.booksDirectory, withIntermediateDirectories: true)
         let outURL = PDFConverter.uniqueSuggestedOutputURL(booksDirectory: runtime.booksDirectory, title: book.title)
         let bookRef = book
@@ -311,10 +330,19 @@ struct ContentView: View {
     }
 
     private func deleteBook(_ book: Book) {
-        // Remove derived + source if we track it
-        try? FileManager.default.removeItem(atPath: book.filePath)
+        let bookTitle = book.title
+        // Remove derived + source if we track it — best-effort, file may already be absent
+        do {
+            try FileManager.default.removeItem(atPath: book.filePath)
+        } catch {
+            NSLog("[Leo] Could not remove book file for '\(bookTitle)': \(error)")
+        }
         if let original = book.originalPDFPath, original != book.filePath {
-            try? FileManager.default.removeItem(atPath: original)
+            do {
+                try FileManager.default.removeItem(atPath: original)
+            } catch {
+                NSLog("[Leo] Could not remove original PDF for '\(bookTitle)': \(error)")
+            }
         }
         // Deselect if selected
         if selectedBook == book {
@@ -322,7 +350,11 @@ struct ContentView: View {
         }
         // Remove from database
         modelContext.delete(book)
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+        } catch {
+            NSLog("[Leo] Failed to save after deleting '\(bookTitle)': \(error)")
+        }
     }
 
     private func syncSelectionWithLibrary() {
