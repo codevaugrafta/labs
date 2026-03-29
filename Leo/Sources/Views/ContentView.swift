@@ -130,6 +130,7 @@ struct ContentView: View {
     }
 
     private func handleAnkiImport(_ result: Result<[URL], Error>) {
+        let message: String
         switch result {
         case .success(let urls):
             guard let url = urls.first else { return }
@@ -139,13 +140,16 @@ struct ContentView: View {
                 let importResult = try AnkiExporter().importDeck(from: url)
                 let tracker = FamiliarityTracker(modelContext: modelContext)
                 tracker.applyImportedStates(importResult.wordStates)
-                ankiImportMessage = "Imported \(importResult.totalCards) cards into vocabulary familiarity."
+                message = "Imported \(importResult.totalCards) cards into vocabulary familiarity."
             } catch {
-                ankiImportMessage = error.localizedDescription
+                message = error.localizedDescription
             }
         case .failure(let error):
-            ankiImportMessage = error.localizedDescription
+            message = error.localizedDescription
         }
+        ankiImportMessage = message
+        // Also notify Settings tab (if open) so it can show the result inline.
+        NotificationCenter.default.post(name: .leoAnkiImportResult, object: message)
     }
 
     /// UI tests only: `LEO_UI_TEST_BOOK_PATH` = absolute path to an EPUB/PDF to copy into the library and select (no file picker).

@@ -79,19 +79,31 @@ struct GeneralSettingsTab: View {
 struct AnkiSettingsTab: View {
     @Query(sort: \VocabularyEntry.text) private var vocabulary: [VocabularyEntry]
     @State private var lastExportMessage: String?
+    @State private var lastImportMessage: String?
 
     var body: some View {
         Form {
             Section("Import") {
-                Text("Import a `.apkg` deck to promote familiarity from card states (File → Import Anki Deck is also available).")
+                Button("Import Anki Deck (.apkg)…") {
+                    NotificationCenter.default.post(name: .leoImportAnki, object: nil)
+                }
+                Text("Card states map to Leo familiarity: New → Unknown, Learning → Learning, Young review → Familiar, Mature (≥21 day interval) → Known.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if let lastImportMessage {
+                    Text(lastImportMessage)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             Section("Export") {
                 Button("Export vocabulary as Anki TSV…") {
                     exportVocabularyTSV()
                 }
                 .disabled(vocabulary.isEmpty)
+                Text("Exports all \(vocabulary.count) saved word\(vocabulary.count == 1 ? "" : "s") as a tab-separated file. Import into Anki via File → Import.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
                 if let lastExportMessage {
                     Text(lastExportMessage)
                         .font(.caption)
@@ -101,6 +113,9 @@ struct AnkiSettingsTab: View {
         }
         .padding()
         .accessibilityIdentifier("leo.settings.tab.anki")
+        .onReceive(NotificationCenter.default.publisher(for: .leoAnkiImportResult)) { note in
+            lastImportMessage = note.object as? String
+        }
     }
 
     private func exportVocabularyTSV() {

@@ -409,14 +409,129 @@ function injectClickHandlers(doc, chapterIndex) {
 
 let _activePopup = null
 
+// Inject popup keyframe animation once into the page <head>.
+// Also injects button hover styles via CSS classes since inline styles
+// cannot express :hover pseudo-state.
+;(function _injectPopupStyles() {
+    if (document.getElementById('leo-popup-styles')) return
+    const style = document.createElement('style')
+    style.id = 'leo-popup-styles'
+    style.textContent = `
+        @keyframes leoPopupIn {
+            from { opacity: 0; transform: scale(0.95) translateY(4px); }
+            to   { opacity: 1; transform: scale(1)    translateY(0px); }
+        }
+        @keyframes leoPopupOut {
+            from { opacity: 1; transform: scale(1)    translateY(0px); }
+            to   { opacity: 0; transform: scale(0.95) translateY(4px); }
+        }
+        #leo-popup {
+            animation: leoPopupIn 0.18s cubic-bezier(0.34, 1.2, 0.64, 1) both;
+        }
+        #leo-popup.leo-hiding {
+            animation: leoPopupOut 0.14s ease-in both;
+        }
+        .leo-btn-know {
+            flex: 1; padding: 8px 0; border-radius: 8px; border: none;
+            cursor: pointer; background: rgba(52,199,89,0.18);
+            color: #34C759; font-size: 13px; font-weight: 600;
+            transition: background 0.15s, transform 0.1s;
+        }
+        .leo-btn-know:hover  { background: rgba(52,199,89,0.30); transform: translateY(-1px); }
+        .leo-btn-know:active { background: rgba(52,199,89,0.40); transform: translateY(0); }
+        .leo-btn-srs {
+            flex: 1; padding: 8px 0; border-radius: 8px; border: none;
+            cursor: pointer; background: rgba(10,132,255,0.18);
+            color: #0A84FF; font-size: 13px; font-weight: 600;
+            transition: background 0.15s, transform 0.1s;
+        }
+        .leo-btn-srs:hover  { background: rgba(10,132,255,0.30); transform: translateY(-1px); }
+        .leo-btn-srs:active { background: rgba(10,132,255,0.40); transform: translateY(0); }
+        .leo-btn-close {
+            background: none; border: none; cursor: pointer;
+            font-size: 20px; line-height: 1; padding: 0 0 0 8px;
+            flex-shrink: 0; align-self: flex-start;
+            transition: opacity 0.15s;
+        }
+        .leo-btn-close:hover  { opacity: 1 !important; }
+        .leo-btn-close:active { opacity: 0.6 !important; }
+    `
+    document.head.appendChild(style)
+})()
+
+// Derive popup colors from the active theme set via setTheme().
+// Returns { bg, fg, border, divider, mutedFg, chipBg, chipBorder }
+function _popupThemeColors() {
+    const themeBg = window._leoLastTheme?.bg ?? '#FFFFFF'
+
+    // Dark theme
+    if (themeBg === '#1E1E1E' || themeBg.startsWith('#1') && themeBg.length === 7) {
+        return {
+            bg:          'rgba(45,45,45,0.97)',
+            fg:          '#F2F2F7',
+            border:      'rgba(255,255,255,0.12)',
+            divider:     'rgba(255,255,255,0.10)',
+            mutedFg:     'rgba(242,242,247,0.45)',
+            numFg:       'rgba(242,242,247,0.35)',
+            chipBg:      'rgba(255,255,255,0.06)',
+            chipBorder:  'rgba(255,255,255,0.10)',
+            chipFg:      'rgba(242,242,247,0.65)',
+            grammarBg:   'rgba(255,255,255,0.05)',
+            closeFg:     'rgba(242,242,247,0.35)',
+            contextFg:   'rgba(200,220,255,0.95)',
+            labelFg:     'rgba(200,220,255,0.55)',
+            alreadyBg:   'rgba(10,132,255,0.10)',
+            alreadyFg:   'rgba(200,220,255,0.92)',
+        }
+    }
+    // Sepia theme
+    if (themeBg === '#F5EDDC' || themeBg.startsWith('#F5')) {
+        return {
+            bg:          'rgba(245,237,220,0.98)',
+            fg:          '#3B2A1A',
+            border:      'rgba(139,90,43,0.20)',
+            divider:     'rgba(139,90,43,0.15)',
+            mutedFg:     'rgba(59,42,26,0.50)',
+            numFg:       'rgba(59,42,26,0.35)',
+            chipBg:      'rgba(139,90,43,0.08)',
+            chipBorder:  'rgba(139,90,43,0.15)',
+            chipFg:      'rgba(59,42,26,0.65)',
+            grammarBg:   'rgba(139,90,43,0.06)',
+            closeFg:     'rgba(59,42,26,0.35)',
+            contextFg:   '#3B2A1A',
+            labelFg:     'rgba(59,42,26,0.50)',
+            alreadyBg:   'rgba(139,90,43,0.10)',
+            alreadyFg:   'rgba(59,42,26,0.80)',
+        }
+    }
+    // Light theme (default)
+    return {
+        bg:          'rgba(255,255,255,0.98)',
+        fg:          '#1A1A1A',
+        border:      'rgba(0,0,0,0.10)',
+        divider:     'rgba(0,0,0,0.08)',
+        mutedFg:     'rgba(26,26,26,0.45)',
+        numFg:       'rgba(26,26,26,0.35)',
+        chipBg:      'rgba(0,0,0,0.04)',
+        chipBorder:  'rgba(0,0,0,0.08)',
+        chipFg:      'rgba(26,26,26,0.60)',
+        grammarBg:   'rgba(0,0,0,0.03)',
+        closeFg:     'rgba(26,26,26,0.30)',
+        contextFg:   '#1A1A1A',
+        labelFg:     'rgba(26,26,26,0.45)',
+        alreadyBg:   'rgba(0,122,255,0.08)',
+        alreadyFg:   'rgba(0,60,180,0.80)',
+    }
+}
+
 // Called from Swift after dictionary lookup completes.
 // data = { word, pinyin, definitions, frequencyTier, frequencyColor, hskLevel, familiarityLabel }
 window.showPopup = function(x, y, data) {
     hidePopup()
 
-    const POP_WIDTH        = 320
-    const POP_APPROX_HEIGHT = 260
-    const MARGIN           = 12
+    const POP_WIDTH         = 380
+    const POP_APPROX_HEIGHT = 280
+    const MARGIN            = 12
     const vw = window.innerWidth
     const vh = window.innerHeight
 
@@ -428,112 +543,176 @@ window.showPopup = function(x, y, data) {
     if (top + POP_APPROX_HEIGHT > vh - MARGIN) top = y - POP_APPROX_HEIGHT - 10
     top = Math.max(MARGIN, top)
 
-    const canMarkKnown = data.canMarkKnown !== false
+    const canMarkKnown  = data.canMarkKnown  !== false
     const alreadyInReview = data.alreadyInReview === true
+    const tc = _popupThemeColors()
 
     // Root card
     const popup = document.createElement('div')
     popup.id = 'leo-popup'
     Object.assign(popup.style, {
-        position: 'fixed', left: left + 'px', top: top + 'px', width: POP_WIDTH + 'px',
-        zIndex: '9999', background: 'rgba(28,28,30,0.97)', color: '#F2F2F7',
-        borderRadius: '14px', padding: '14px 16px 12px',
-        boxShadow: '0 8px 32px rgba(0,0,0,.45),0 2px 8px rgba(0,0,0,.3)',
-        fontFamily: '-apple-system,"PingFang SC",sans-serif', fontSize: '14px',
-        lineHeight: '1.4', border: '1px solid rgba(255,255,255,.12)',
-        pointerEvents: 'auto', userSelect: 'none', boxSizing: 'border-box',
+        position:       'fixed',
+        left:           left + 'px',
+        top:            top + 'px',
+        width:          POP_WIDTH + 'px',
+        maxWidth:       POP_WIDTH + 'px',
+        zIndex:         '9999',
+        background:     tc.bg,
+        color:          tc.fg,
+        borderRadius:   '12px',
+        padding:        '16px',
+        boxShadow:      '0 8px 32px rgba(0,0,0,0.20), 0 2px 8px rgba(0,0,0,0.12)',
+        backdropFilter: 'blur(12px)',
+        WebkitBackdropFilter: 'blur(12px)',
+        fontFamily:     '-apple-system,"PingFang SC",sans-serif',
+        fontSize:       '14px',
+        lineHeight:     '1.5',
+        border:         '1px solid ' + tc.border,
+        pointerEvents:  'auto',
+        userSelect:     'none',
+        boxSizing:      'border-box',
     })
 
-    // --- Header row ---
+    // --- Header row (word + pinyin + badges + close button) ---
     const header = document.createElement('div')
-    Object.assign(header.style, { display: 'flex', alignItems: 'baseline',
-        justifyContent: 'space-between', marginBottom: '6px' })
+    Object.assign(header.style, {
+        display:        'flex',
+        alignItems:     'flex-start',
+        justifyContent: 'space-between',
+        marginBottom:   '10px',
+        gap:            '8px',
+    })
 
     const wordGroup = document.createElement('div')
-    Object.assign(wordGroup.style, { display: 'flex', alignItems: 'baseline',
-        flexWrap: 'wrap', gap: '0', flex: '1' })
+    Object.assign(wordGroup.style, {
+        display:  'flex',
+        flexWrap: 'wrap',
+        alignItems: 'baseline',
+        gap:      '8px',
+        flex:     '1',
+        minWidth: '0',
+    })
 
     const wordEl = document.createElement('span')
     wordEl.textContent = data.word ?? ''
-    Object.assign(wordEl.style, { fontSize: '26px', fontWeight: '500',
-        letterSpacing: '-0.5px', marginRight: '10px', lineHeight: '1.1' })
+    Object.assign(wordEl.style, {
+        fontSize:      '28px',
+        fontWeight:    '600',
+        letterSpacing: '-0.5px',
+        lineHeight:    '1.1',
+        color:         tc.fg,
+    })
     wordGroup.appendChild(wordEl)
 
     const pinyinEl = document.createElement('span')
     pinyinEl.textContent = data.pinyin ?? ''
-    Object.assign(pinyinEl.style, { fontSize: '15px', color: '#FF9F0A', fontWeight: '400' })
+    Object.assign(pinyinEl.style, {
+        fontSize:   '16px',
+        color:      '#E67E22',
+        fontWeight: '400',
+        lineHeight: '1.2',
+    })
     wordGroup.appendChild(pinyinEl)
+
+    // Badges row (frequency + HSK) — inline with pinyin baseline
+    const badgeGroup = document.createElement('div')
+    Object.assign(badgeGroup.style, {
+        display:    'flex',
+        alignItems: 'center',
+        gap:        '6px',
+        flexWrap:   'wrap',
+    })
 
     if (data.frequencyTier) {
         const badge = document.createElement('span')
         badge.textContent = data.frequencyTier
         const c = data.frequencyColor ?? '#6b7280'
         Object.assign(badge.style, {
-            display: 'inline-block', fontSize: '10px', fontWeight: '600',
-            padding: '2px 7px', borderRadius: '20px', marginLeft: '8px',
-            background: c + '22', color: c, border: '1px solid ' + c + '44',
-            verticalAlign: 'middle',
+            display:      'inline-flex',
+            alignItems:   'center',
+            fontSize:     '11px',
+            fontWeight:   '600',
+            padding:      '2px 8px',
+            borderRadius: '999px',
+            background:   c + '22',
+            color:        c,
+            border:       '1px solid ' + c + '44',
+            lineHeight:   '1.4',
         })
-        wordGroup.appendChild(badge)
+        badgeGroup.appendChild(badge)
     }
 
     if (data.hskLevel) {
         const badge = document.createElement('span')
-        badge.textContent = 'HSK ' + String(data.hskLevel)
+        badge.textContent = 'HSK\u00A0' + String(data.hskLevel)
         Object.assign(badge.style, {
-            display: 'inline-block', fontSize: '10px', fontWeight: '600',
-            padding: '2px 7px', borderRadius: '20px', marginLeft: '6px',
-            background: '#3b82f622', color: '#3b82f6', border: '1px solid #3b82f644',
-            verticalAlign: 'middle',
+            display:      'inline-flex',
+            alignItems:   'center',
+            fontSize:     '11px',
+            fontWeight:   '600',
+            padding:      '2px 8px',
+            borderRadius: '999px',
+            background:   '#3b82f622',
+            color:        '#3b82f6',
+            border:       '1px solid #3b82f644',
+            lineHeight:   '1.4',
         })
-        wordGroup.appendChild(badge)
+        badgeGroup.appendChild(badge)
+    }
+
+    if (badgeGroup.childElementCount > 0) {
+        wordGroup.appendChild(badgeGroup)
     }
 
     header.appendChild(wordGroup)
 
     const closeBtn = document.createElement('button')
-    closeBtn.textContent = '×'
+    closeBtn.textContent = '\u00D7'
     closeBtn.setAttribute('aria-label', 'Close')
+    closeBtn.className = 'leo-btn-close'
     Object.assign(closeBtn.style, {
-        background: 'none', border: 'none', cursor: 'pointer',
-        color: 'rgba(242,242,247,0.4)', fontSize: '18px', lineHeight: '1',
-        padding: '0 0 0 8px', flexShrink: '0', alignSelf: 'flex-start',
+        color:      tc.closeFg,
+        opacity:    '0.7',
+        marginTop:  '2px',
     })
     header.appendChild(closeBtn)
     popup.appendChild(header)
 
+    // --- Meta chips (familiarity + frequency) ---
     const metaRow = document.createElement('div')
     Object.assign(metaRow.style, {
-        display: 'flex',
-        flexWrap: 'wrap',
-        gap: '6px',
+        display:      'flex',
+        flexWrap:     'wrap',
+        gap:          '6px',
         marginBottom: '10px',
     })
 
     if (data.familiarityLabel) {
         const famChip = document.createElement('span')
-        famChip.textContent = `Familiarity: ${data.familiarityLabel}`
+        famChip.textContent = 'Familiarity: ' + data.familiarityLabel
         Object.assign(famChip.style, {
-            fontSize: '11px',
-            color: 'rgba(242,242,247,0.65)',
-            background: 'rgba(255,255,255,0.06)',
-            border: '1px solid rgba(255,255,255,0.08)',
+            fontSize:     '11px',
+            color:        tc.chipFg,
+            background:   tc.chipBg,
+            border:       '1px solid ' + tc.chipBorder,
             borderRadius: '999px',
-            padding: '3px 8px',
+            padding:      '3px 9px',
+            lineHeight:   '1.4',
         })
         metaRow.appendChild(famChip)
     }
 
     if (data.frequencyTier) {
         const freqChip = document.createElement('span')
-        freqChip.textContent = `Frequency: ${data.frequencyTier}`
+        freqChip.textContent = 'Frequency: ' + data.frequencyTier
         Object.assign(freqChip.style, {
-            fontSize: '11px',
-            color: 'rgba(242,242,247,0.65)',
-            background: 'rgba(255,255,255,0.06)',
-            border: '1px solid rgba(255,255,255,0.08)',
+            fontSize:     '11px',
+            color:        tc.chipFg,
+            background:   tc.chipBg,
+            border:       '1px solid ' + tc.chipBorder,
             borderRadius: '999px',
-            padding: '3px 8px',
+            padding:      '3px 9px',
+            lineHeight:   '1.4',
         })
         metaRow.appendChild(freqChip)
     }
@@ -546,32 +725,42 @@ window.showPopup = function(x, y, data) {
     const defsSection = document.createElement('div')
     defsSection.id = 'leo-defs'
     Object.assign(defsSection.style, {
-        borderTop: '1px solid rgba(255,255,255,.1)',
-        paddingTop: '8px', marginBottom: '10px', fontSize: '13.5px',
+        borderTop:    '1px solid ' + tc.divider,
+        paddingTop:   '10px',
+        marginBottom: '10px',
+        fontSize:     '14px',
+        lineHeight:   '1.55',
     })
 
     const defs = (data.definitions ?? []).slice(0, 4)
     if (defs.length === 0) {
         const empty = document.createElement('p')
         empty.textContent = 'No dictionary entry yet. Leo can still track this word while you keep reading.'
-        Object.assign(empty.style, { color: 'rgba(242,242,247,0.45)',
-            margin: '0' })
+        Object.assign(empty.style, { color: tc.mutedFg, margin: '0', lineHeight: '1.5' })
         defsSection.appendChild(empty)
     } else {
         defs.forEach((def, i) => {
             const row = document.createElement('div')
-            Object.assign(row.style, { display: 'flex', gap: '8px', marginBottom: '4px' })
+            Object.assign(row.style, {
+                display:      'flex',
+                gap:          '8px',
+                marginBottom: i < defs.length - 1 ? '6px' : '0',
+            })
 
             const num = document.createElement('span')
             num.textContent = (i + 1) + '.'
             Object.assign(num.style, {
-                color: 'rgba(242,242,247,0.4)', minWidth: '16px',
-                textAlign: 'right', flexShrink: '0',
+                color:     tc.numFg,
+                minWidth:  '18px',
+                textAlign: 'right',
+                flexShrink: '0',
+                paddingTop: '1px',
+                fontSize:  '13px',
             })
 
             const text = document.createElement('span')
             text.textContent = def
-            text.style.color = '#F2F2F7'
+            text.style.color = tc.fg
 
             row.appendChild(num)
             row.appendChild(text)
@@ -586,38 +775,38 @@ window.showPopup = function(x, y, data) {
         const grammarSection = document.createElement('div')
         grammarSection.id = 'leo-grammar'
         Object.assign(grammarSection.style, {
-            borderTop: '1px solid rgba(255,255,255,.1)',
-            paddingTop: '8px',
+            borderTop:    '1px solid ' + tc.divider,
+            paddingTop:   '10px',
             marginBottom: '10px',
         })
 
         const grammarLabel = document.createElement('div')
         grammarLabel.textContent = 'Grammar'
         Object.assign(grammarLabel.style, {
-            fontSize: '10px',
-            fontWeight: '700',
-            letterSpacing: '0.06em',
+            fontSize:      '10px',
+            fontWeight:    '700',
+            letterSpacing: '0.07em',
             textTransform: 'uppercase',
-            color: 'rgba(200,220,255,0.55)',
-            marginBottom: '6px',
+            color:         tc.labelFg,
+            marginBottom:  '8px',
         })
         grammarSection.appendChild(grammarLabel)
 
         for (const pat of grammarPatterns) {
             const card = document.createElement('div')
             Object.assign(card.style, {
-                background: 'rgba(255,255,255,0.05)',
+                background:   tc.grammarBg,
                 borderRadius: '8px',
-                padding: '7px 10px',
+                padding:      '8px 12px',
                 marginBottom: '6px',
             })
 
             // Level badge + title row
             const titleRow = document.createElement('div')
             Object.assign(titleRow.style, {
-                display: 'flex',
-                alignItems: 'center',
-                gap: '6px',
+                display:      'flex',
+                alignItems:   'center',
+                gap:          '6px',
                 marginBottom: '4px',
             })
 
@@ -625,23 +814,23 @@ window.showPopup = function(x, y, data) {
             levelBadge.textContent = pat.level ?? ''
             const levelColor = _grammarLevelColor(pat.level)
             Object.assign(levelBadge.style, {
-                fontSize: '10px',
-                fontWeight: '700',
-                padding: '1px 6px',
-                borderRadius: '20px',
-                background: levelColor + '22',
-                color: levelColor,
-                border: '1px solid ' + levelColor + '44',
-                flexShrink: '0',
+                fontSize:     '10px',
+                fontWeight:   '700',
+                padding:      '1px 6px',
+                borderRadius: '999px',
+                background:   levelColor + '22',
+                color:        levelColor,
+                border:       '1px solid ' + levelColor + '44',
+                flexShrink:   '0',
             })
             titleRow.appendChild(levelBadge)
 
             const titleEl = document.createElement('span')
             titleEl.textContent = pat.title ?? ''
             Object.assign(titleEl.style, {
-                fontSize: '12px',
-                fontWeight: '500',
-                color: 'rgba(242,242,247,0.9)',
+                fontSize:   '12px',
+                fontWeight: '600',
+                color:      tc.fg,
             })
             titleRow.appendChild(titleEl)
             card.appendChild(titleRow)
@@ -651,10 +840,10 @@ window.showPopup = function(x, y, data) {
                 const structEl = document.createElement('div')
                 structEl.textContent = pat.structure
                 Object.assign(structEl.style, {
-                    fontSize: '12px',
-                    color: '#FF9F0A',
+                    fontSize:   '12px',
+                    color:      '#E67E22',
                     fontFamily: 'ui-monospace, monospace',
-                    marginTop: '2px',
+                    marginTop:  '3px',
                 })
                 card.appendChild(structEl)
             }
@@ -664,10 +853,10 @@ window.showPopup = function(x, y, data) {
                 const descEl = document.createElement('div')
                 descEl.textContent = pat.description
                 Object.assign(descEl.style, {
-                    fontSize: '11.5px',
-                    color: 'rgba(242,242,247,0.55)',
-                    marginTop: '4px',
-                    lineHeight: '1.4',
+                    fontSize:   '12px',
+                    color:      tc.mutedFg,
+                    marginTop:  '4px',
+                    lineHeight: '1.45',
                 })
                 card.appendChild(descEl)
             }
@@ -681,19 +870,17 @@ window.showPopup = function(x, y, data) {
     // --- Action buttons ---
     const actions = document.createElement('div')
     Object.assign(actions.style, {
-        display: 'flex', gap: '8px',
-        borderTop: '1px solid rgba(255,255,255,.1)', paddingTop: '10px',
+        display:    'flex',
+        gap:        '8px',
+        borderTop:  '1px solid ' + tc.divider,
+        paddingTop: '12px',
     })
 
     let knowBtn = null
     if (canMarkKnown) {
         knowBtn = document.createElement('button')
         knowBtn.textContent = 'I know this'
-        Object.assign(knowBtn.style, {
-            flex: '1', padding: '7px 0', borderRadius: '8px', border: 'none',
-            cursor: 'pointer', background: 'rgba(52,199,89,0.18)',
-            color: '#34C759', fontSize: '12px', fontWeight: '600',
-        })
+        knowBtn.className = 'leo-btn-know'
         actions.appendChild(knowBtn)
     }
 
@@ -701,24 +888,20 @@ window.showPopup = function(x, y, data) {
     if (!alreadyInReview) {
         srsBtn = document.createElement('button')
         srsBtn.textContent = 'Add to review'
-        Object.assign(srsBtn.style, {
-            flex: '1', padding: '7px 0', borderRadius: '8px', border: 'none',
-            cursor: 'pointer', background: 'rgba(10,132,255,0.18)',
-            color: '#0A84FF', fontSize: '12px', fontWeight: '600',
-        })
+        srsBtn.className = 'leo-btn-srs'
         actions.appendChild(srsBtn)
     } else {
         const status = document.createElement('div')
         status.textContent = 'Already in review'
         Object.assign(status.style, {
-            flex: '1',
-            padding: '7px 10px',
+            flex:         '1',
+            padding:      '8px 10px',
             borderRadius: '8px',
-            background: 'rgba(10,132,255,0.10)',
-            color: 'rgba(200,220,255,0.92)',
-            fontSize: '12px',
-            fontWeight: '600',
-            textAlign: 'center',
+            background:   tc.alreadyBg,
+            color:        tc.alreadyFg,
+            fontSize:     '13px',
+            fontWeight:   '600',
+            textAlign:    'center',
         })
         actions.appendChild(status)
     }
@@ -769,24 +952,28 @@ window.updatePopupContext = function(text) {
     if (!text) return
     const popup = document.getElementById('leo-popup')
     if (!popup) return
+    const tc = _popupThemeColors()
     let el = document.getElementById('leo-context')
     if (!el) {
         el = document.createElement('div')
         el.id = 'leo-context'
         Object.assign(el.style, {
-            borderTop: '1px solid rgba(255,255,255,.08)',
-            paddingTop: '8px', marginBottom: '8px', fontSize: '12.5px',
-            color: 'rgba(200,220,255,0.95)', lineHeight: '1.35',
+            borderTop:    '1px solid ' + tc.divider,
+            paddingTop:   '10px',
+            marginBottom: '8px',
+            fontSize:     '13px',
+            color:        tc.contextFg,
+            lineHeight:   '1.45',
         })
         const label = document.createElement('div')
         label.textContent = 'Context'
         Object.assign(label.style, {
-            fontSize: '10px',
-            fontWeight: '700',
-            letterSpacing: '0.06em',
+            fontSize:      '10px',
+            fontWeight:    '700',
+            letterSpacing: '0.07em',
             textTransform: 'uppercase',
-            color: 'rgba(200,220,255,0.55)',
-            marginBottom: '4px',
+            color:         tc.labelFg,
+            marginBottom:  '5px',
         })
         el.appendChild(label)
 
@@ -806,11 +993,14 @@ window.updatePopupContext = function(text) {
     }
 }
 
+// Plays a brief fade-out animation then removes the popup.
 function hidePopup() {
-    if (_activePopup) {
-        _activePopup.remove()
-        _activePopup = null
-    }
+    if (!_activePopup) return
+    const el = _activePopup
+    _activePopup = null
+    el.classList.add('leo-hiding')
+    // Duration matches the leoPopupOut animation (0.14s)
+    setTimeout(() => { el.remove() }, 150)
 }
 
 // Returns a hex color for a CEFR/HSK level badge in the grammar section.

@@ -5,6 +5,8 @@ import Darwin
 extension Notification.Name {
     static let leoImportBook = Notification.Name("leoImportBook")
     static let leoImportAnki = Notification.Name("leoImportAnki")
+    /// Broadcast after an Anki import completes. `object` is a `String` summary message.
+    static let leoAnkiImportResult = Notification.Name("leoAnkiImportResult")
     /// `object` is the PDF `Book`'s `UUID`; main window runs conversion.
     static let leoRequestPDFConvert = Notification.Name("leoRequestPDFConvert")
 }

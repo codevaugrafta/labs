@@ -52,11 +52,12 @@ struct AnkiExporter: Sendable {
             let interval = Int(parts[2]) ?? 0
 
             let state: FamiliarityState = switch cardType {
-            case 0: .unknown     // New card
-            case 1: .learning    // Learning
-            case 2 where interval >= 21: .known  // Mature review card
-            case 2: .familiar    // Young review card
-            default: .seen
+            case 0: .unknown                      // New card
+            case 1: .learning                     // Learning (step-based)
+            case 2 where interval >= 21: .known   // Mature review card
+            case 2: .familiar                     // Young review card
+            case 3: .learning                     // Relearning (lapsed) — treat same as learning
+            default: .unknown                     // Unknown type — conservative default
             }
 
             wordStates.append((word: word, state: state))
@@ -121,8 +122,17 @@ struct AnkiExporter: Sendable {
     }
 
     private func runSQLite(dbPath: String, query: String) throws -> String {
+        // sqlite3 ships with macOS via Xcode CLT. On a bare system it may live at
+        // /usr/bin/sqlite3 (Rosetta) or be absent entirely — check existence first.
+        let candidates = ["/usr/bin/sqlite3", "/usr/local/bin/sqlite3"]
+        guard let execPath = candidates.first(where: { FileManager.default.fileExists(atPath: $0) }) else {
+            throw AnkiError.invalidFormat(
+                "sqlite3 not found at /usr/bin/sqlite3. Install Xcode Command Line Tools: xcode-select --install"
+            )
+        }
+
         let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/sqlite3")
+        process.executableURL = URL(fileURLWithPath: execPath)
         process.arguments = [dbPath, query]
 
         let pipe = Pipe()
