@@ -44,6 +44,7 @@ struct ContentView: View {
                 EmptyLibraryView(onImport: presentBookImportPanel)
             }
         }
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .accessibilityIdentifier("leo.root.split")
         .fileImporter(
             isPresented: $showAnkiImporter,

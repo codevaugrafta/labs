@@ -311,6 +311,7 @@ struct ReaderView: View {
                 DictionaryEngine.shared.load()
                 FrequencyEngine.shared.load()
                 GrammarEngine.shared.load()
+                DecompositionEngine.shared.load()
             }.value
             familiarityTracker = FamiliarityTracker(modelContext: modelContext)
             sessionEngine.configure(modelContext: modelContext)

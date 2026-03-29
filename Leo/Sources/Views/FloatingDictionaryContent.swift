@@ -7,12 +7,14 @@ import AppKit
 struct DictionaryLookupData: Sendable {
     let word: String
     let pinyin: String           // Empty string when user has pinyin disabled
-    let primaryDefinition: String
+    let definitions: [String]
     let hskLevel: Int?
     let grammarTitle: String?    // e.g. "A2 · 不得不 structure"
     let grammarLevel: String?
     let familiarity: FamiliarityState
     let alreadyInReview: Bool
+    let components: [String]?    // Direct Unicode components; nil for multi-char words
+    let radical: String?         // Kangxi radical character; nil for multi-char words
 }
 
 // MARK: - Content view
@@ -51,13 +53,50 @@ struct FloatingDictionaryContent: View {
             .padding(.top, 16)
             .padding(.horizontal, 18)
 
-            // MARK: Primary definition
-            Text(data.primaryDefinition)
-                .font(.system(size: 14))
-                .foregroundStyle(.primary)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.top, 8)
+            // MARK: Definitions
+            Group {
+                if data.definitions.count == 1 {
+                    Text(data.definitions[0])
+                        .font(.system(size: 14))
+                        .foregroundStyle(.primary)
+                        .fixedSize(horizontal: false, vertical: true)
+                } else {
+                    VStack(alignment: .leading, spacing: 3) {
+                        ForEach(Array(data.definitions.prefix(5).enumerated()), id: \.offset) { idx, def in
+                            HStack(alignment: .top, spacing: 4) {
+                                Text("\(idx + 1).")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.tertiary)
+                                    .frame(width: 16, alignment: .trailing)
+                                Text(def)
+                                    .font(.system(size: 13))
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(.top, 8)
+            .padding(.horizontal, 18)
+
+            // MARK: Components (single-char only)
+            if let components = data.components, !components.isEmpty {
+                HStack(spacing: 4) {
+                    Text("Components: \(components.joined(separator: " · "))")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    if let radical = data.radical {
+                        Text("·")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                        Text("Radical: \(radical)")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.top, 4)
                 .padding(.horizontal, 18)
+            }
 
             // MARK: Grammar note
             if let grammarTitle = data.grammarTitle,

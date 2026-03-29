@@ -48,6 +48,8 @@ struct LeoApp: App {
             ContentView()
                 .environmentObject(runtime)
         }
+        .windowStyle(.titleBar)
+        .windowToolbarStyle(.unified(showsTitle: false))
         .modelContainer(modelContainer)
         .commands {
             CommandGroup(replacing: .newItem) {

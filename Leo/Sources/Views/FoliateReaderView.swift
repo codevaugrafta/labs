@@ -444,7 +444,7 @@ struct FoliateReaderView: NSViewRepresentable {
             let screenPoint = NSEvent.mouseLocation
 
             let pinyin = showPinyin ? (entries.first?.pinyinDisplay ?? "") : ""
-            let primaryDefinition = entries.first?.definitions.first ?? ""
+            let definitions = entries.flatMap(\.definitions)
 
             var grammarTitle: String?
             var grammarLevel: String?
@@ -453,15 +453,27 @@ struct FoliateReaderView: NSViewRepresentable {
                 grammarLevel = first.level
             }
 
+            let components: [String]?
+            let radical: String?
+            if word.count == 1, let char = word.first {
+                components = DecompositionEngine.shared.decompose(char)
+                radical = DecompositionEngine.shared.radicalOf(char)
+            } else {
+                components = nil
+                radical = nil
+            }
+
             let lookupData = DictionaryLookupData(
                 word: word,
                 pinyin: pinyin,
-                primaryDefinition: primaryDefinition,
+                definitions: definitions,
                 hskLevel: freqData.hskLevel,
                 grammarTitle: grammarTitle,
                 grammarLevel: grammarLevel,
                 familiarity: familiarity,
-                alreadyInReview: alreadyInReview
+                alreadyInReview: alreadyInReview,
+                components: components,
+                radical: radical
             )
 
             FloatingDictionaryController.shared.show(
