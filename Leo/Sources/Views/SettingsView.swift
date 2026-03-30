@@ -210,6 +210,7 @@ struct ReadingSettingsTab: View {
     @AppStorage("leo.showHighlights") private var showHighlights = true
     @AppStorage("leo.textDirection") private var textDirection = "horizontal"
     @AppStorage("leo.pageStyle") private var pageStyle = "clean"
+    @AppStorage("leo.spreadMode") private var spreadMode = "auto"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -219,7 +220,8 @@ struct ReadingSettingsTab: View {
                 textDirection: $textDirection,
                 showPinyin: $showPinyin,
                 showHighlights: $showHighlights,
-                pageStyle: $pageStyle
+                pageStyle: $pageStyle,
+                spreadMode: $spreadMode
             )
         }
         .padding()

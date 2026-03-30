@@ -18,6 +18,8 @@ struct LeoReadingChromePreferences: Equatable {
     var showHighlights: Bool
     /// `"clean"` — no shadows or texture (default); `"page"` — book-page shadows + paper texture.
     var pageStyle: String
+    /// Foliate spread mode: `"none"` (single page), `"auto"` (2-page on wide), `"both"` (always 2-page).
+    var spreadMode: String
 
     static let defaultPrefs = LeoReadingChromePreferences(
         fontSize: 18,
@@ -25,7 +27,8 @@ struct LeoReadingChromePreferences: Equatable {
         textDirection: "horizontal",
         showPinyin: false,
         showHighlights: true,
-        pageStyle: "clean"
+        pageStyle: "clean",
+        spreadMode: "auto"
     )
 }
 
@@ -275,6 +278,22 @@ struct FoliateReaderView: NSViewRepresentable {
         /// Removes all speaking highlights from the JS side.
         func clearSpeakingHighlight() {
             webView?.evaluateJavaScript("clearSpeakingHighlight()", completionHandler: nil)
+        }
+
+        // MARK: - Spread mode
+
+        /// Sets the foliate-js spread mode: "none" (single page), "auto" (2-page when wide), "both" (always 2-page).
+        func setSpreadMode(_ mode: String) {
+            guard let encoded = try? JSONSerialization.data(withJSONObject: mode),
+                  let literal = String(data: encoded, encoding: .utf8) else {
+                NSLog("[Leo Bridge] setSpreadMode: failed to serialize mode")
+                return
+            }
+            webView?.evaluateJavaScript("setSpreadMode(\(literal))") { _, error in
+                if let error {
+                    NSLog("[Leo Bridge] setSpreadMode JS error: \(error)")
+                }
+            }
         }
 
         // MARK: - In-book search
@@ -689,7 +708,15 @@ struct FoliateReaderView: NSViewRepresentable {
                 return
             }
 
-            let js = "setTheme(\(themeStr)); applyReadingPreferences(\(prefsStr));"
+            let spreadLiteral: String
+            if let spreadData = try? JSONSerialization.data(withJSONObject: latestReading.spreadMode),
+               let spreadStr = String(data: spreadData, encoding: .utf8) {
+                spreadLiteral = spreadStr
+            } else {
+                spreadLiteral = "\"auto\""
+            }
+
+            let js = "setTheme(\(themeStr)); applyReadingPreferences(\(prefsStr)); window.__leoSpreadMode = \(spreadLiteral); if(typeof setSpreadMode==='function') setSpreadMode(\(spreadLiteral));"
             webView.evaluateJavaScript(js) { _, error in
                 if let error {
                     NSLog("[Leo Bridge] pushReaderChrome: \(error)")

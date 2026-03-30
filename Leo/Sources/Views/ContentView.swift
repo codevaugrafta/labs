@@ -63,7 +63,7 @@ struct ContentView: View {
                     onRetryPDFBookView: { preparePDFBookViewIfNeeded($0, forceRetry: true, userInitiated: true) }
                 )
                 .id(book.id) // Force fresh view when switching books
-                .ignoresSafeArea(.all, edges: .top)
+                .ignoresSafeArea()
             } else {
                 EmptyLibraryView(onImport: presentBookImportPanel)
             }

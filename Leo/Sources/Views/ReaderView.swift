@@ -26,6 +26,7 @@ struct ReaderView: View {
     @AppStorage("leo.showHighlights") private var readingShowHighlights = true
     @AppStorage("leo.textDirection") private var readingTextDirection = "horizontal"
     @AppStorage("leo.pageStyle") private var readingPageStyle = "clean"
+    @AppStorage("leo.spreadMode") private var readingSpreadMode = "auto"
     @AppStorage("leo.pdf.layoutMode") private var storedPDFLayoutMode = PDFPageLayoutMode.continuous.rawValue
     @AppStorage("leo.pdf.scrollAxis") private var storedPDFScrollAxis = PDFScrollAxis.vertical.rawValue
     @AppStorage("leo.pdf.fitPolicy") private var storedPDFFitPolicy = PDFPageFitPolicy.fitPage.rawValue
@@ -88,7 +89,8 @@ struct ReaderView: View {
                     textDirection: readingTextDirection,
                     showPinyin: readingShowPinyin,
                     showHighlights: readingShowHighlights,
-                    pageStyle: readingPageStyle
+                    pageStyle: readingPageStyle,
+                    spreadMode: readingSpreadMode
                 ),
                 onRelocate: persistLocation,
                 onLoadSuccess: handleReaderLoadSuccess,
@@ -259,7 +261,8 @@ struct ReaderView: View {
                             textDirection: $readingTextDirection,
                             showPinyin: $readingShowPinyin,
                             showHighlights: $readingShowHighlights,
-                            pageStyle: $readingPageStyle
+                            pageStyle: $readingPageStyle,
+                            spreadMode: $readingSpreadMode
                         )
                         .padding()
                         .frame(minWidth: 320, minHeight: 280)
@@ -274,6 +277,14 @@ struct ReaderView: View {
             .shadow(color: .black.opacity(0.08), radius: 12, y: 4)
             .padding(.top, 6)
             .padding(.horizontal, 60)
+            .onHover { hovering in
+                if hovering {
+                    chromeHideTimer?.invalidate()
+                    chromeHideTimer = nil
+                } else {
+                    resetChromeTimer()
+                }
+            }
             .transition(.move(edge: .top).combined(with: .opacity))
             .zIndex(15_000)
         }
@@ -352,6 +363,14 @@ struct ReaderView: View {
             )
             .padding(.trailing, 20)
             .padding(.bottom, 20)
+            .onHover { hovering in
+                if hovering {
+                    chromeHideTimer?.invalidate()
+                    chromeHideTimer = nil
+                } else {
+                    resetChromeTimer()
+                }
+            }
             .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .bottomTrailing)))
             .zIndex(14_000)
         }
@@ -387,6 +406,7 @@ struct ReaderView: View {
         .onContinuousHover { phase in
             switch phase {
             case .active(let location):
+                // Show chrome when mouse is near the top 60px (toolbar zone)
                 if location.y < 60 {
                     withAnimation { chromeVisible = true }
                     resetChromeTimer()

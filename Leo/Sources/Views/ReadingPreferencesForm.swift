@@ -8,6 +8,7 @@ struct ReadingPreferencesForm: View {
     @Binding var showPinyin: Bool
     @Binding var showHighlights: Bool
     @Binding var pageStyle: String
+    @Binding var spreadMode: String
 
     private var pageStyleIsPage: Binding<Bool> {
         Binding(
@@ -32,6 +33,19 @@ struct ReadingPreferencesForm: View {
                     Text("Vertical").tag("vertical")
                 }
                 .accessibilityIdentifier("leo.readingPrefs.textDirection")
+            }
+
+            Section("Layout") {
+                Picker("Page layout", selection: $spreadMode) {
+                    Text("Single page").tag("none")
+                    Text("Two pages").tag("auto")
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .accessibilityIdentifier("leo.readingPrefs.spreadMode")
+                Text("Single page or two-page spread")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("Display") {

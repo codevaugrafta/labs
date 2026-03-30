@@ -96,9 +96,9 @@ function buildLeoReaderBodyCSS() {
                 line-height: ${p.lineHeight};
                 writing-mode: ${writingMode};
                 text-orientation: mixed;
-                max-width: ${vertical ? 'none' : '38em'};
-                margin: 0 auto;
-                padding: 2em 3em;
+                max-width: none;
+                margin: 0;
+                padding: 1em 1.5em;
                 text-indent: ${vertical ? '0' : '2em'};
                 text-align: justify;
                 text-justify: inter-character;
@@ -183,9 +183,10 @@ window.openBook = function(request) {
             // open() sets up book data and creates the renderer — it does NOT navigate.
             await view.open(file)
 
-            // Two-page spread on wide screens (Apple Books default)
-            if (window.innerWidth > 900 && view.renderer?.setAttribute) {
-                view.renderer.setAttribute('spread', 'auto')
+            // Apply spread mode: use stored preference or default to 'auto' on wide screens
+            const spreadMode = window.__leoSpreadMode ?? (window.innerWidth > 900 ? 'auto' : 'none')
+            if (view.renderer?.setAttribute) {
+                view.renderer.setAttribute('spread', spreadMode)
             }
 
             postToSwift('loaded', {
@@ -233,6 +234,14 @@ window.openBook = function(request) {
             postToSwift('error', { message: err.message, source: 'openBook' })
         }
     })()
+}
+
+// Set spread mode: 'none' (single page), 'auto' (2-page when wide), 'both' (always 2-page)
+window.setSpreadMode = function(mode) {
+    window.__leoSpreadMode = mode
+    if (view && view.renderer && view.renderer.setAttribute) {
+        view.renderer.setAttribute('spread', mode)
+    }
 }
 
 // Navigate to a specific CFI position
