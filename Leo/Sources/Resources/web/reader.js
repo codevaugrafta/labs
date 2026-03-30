@@ -322,6 +322,11 @@ window.prevPage = function() { window._rendererPrev?.() }
 let _highlightSpans = []
 let _highlightDoc = null   // the iframe document that owns the spans
 
+// --- SENTENCE HIGHLIGHT ---
+// Tracks the <span> elements wrapping the full sentence so they can be
+// removed when the popup is dismissed or a new word is tapped.
+let _sentenceSpans = []
+
 // --- SPEAKING HIGHLIGHT (TTS karaoke) ---
 // Tracks the <span> elements injected by highlightSpeakingWord() so they can
 // be removed when the word changes or TTS stops.
@@ -341,6 +346,20 @@ function _clearExpressionHighlight() {
     }
     _highlightSpans = []
     _highlightDoc = null
+    _clearSentenceHighlight()
+}
+
+function _clearSentenceHighlight() {
+    for (const span of _sentenceSpans) {
+        const parent = span.parentNode
+        if (!parent) continue
+        while (span.firstChild) {
+            parent.insertBefore(span.firstChild, span)
+        }
+        parent.removeChild(span)
+        parent.normalize()
+    }
+    _sentenceSpans = []
 }
 
 // Called by Swift after word/expression resolution.
@@ -463,6 +482,132 @@ window.highlightRange = function(context, word, charIndex) {
     } catch (_) {
         // surroundContents can fail if the range crosses element boundaries.
         // In that case we skip the highlight silently — the popup still shows.
+    }
+}
+
+// --- SENTENCE HIGHLIGHT ---
+//
+// Called by Swift after a word tap. Finds the sentence that contains `word`
+// (using Chinese punctuation 。！？ and newlines as boundaries) and wraps each
+// text node fragment within the sentence in a .leo-sentence-highlight span.
+//
+// Parameters mirror highlightRange: same context string and charIndex so we
+// can locate the sentence relative to the tapped position.
+window.highlightSentence = function(context, word, charIndex) {
+    _clearSentenceHighlight()
+
+    const doc = _highlightDoc
+    if (!doc) return
+
+    // Inject sentence highlight CSS once per iframe document.
+    const STYLE_ID = 'leo-sentence-highlight-styles'
+    if (!doc.getElementById(STYLE_ID)) {
+        const style = doc.createElement('style')
+        style.id = STYLE_ID
+        style.textContent = `
+            .leo-sentence-highlight {
+                background: rgba(59, 130, 246, 0.06);
+                border-radius: 2px;
+                transition: background 0.2s ease;
+            }
+        `
+        doc.head?.appendChild(style)
+    }
+
+    // Find sentence boundaries in the context string using code points.
+    const sentenceBoundaries = '。！？\n'
+    const contextChars = Array.from(context)
+    let sentenceStart = charIndex
+    let sentenceEnd = charIndex
+
+    while (sentenceStart > 0 && !sentenceBoundaries.includes(contextChars[sentenceStart - 1])) {
+        sentenceStart--
+    }
+    while (sentenceEnd < contextChars.length && !sentenceBoundaries.includes(contextChars[sentenceEnd])) {
+        sentenceEnd++
+    }
+
+    const sentence = contextChars.slice(sentenceStart, sentenceEnd).join('')
+    if (!sentence || sentence.length < 2) return
+
+    // Walk all text nodes in the iframe document looking for text nodes that
+    // contain portions of the sentence. We anchor the search using a prefix
+    // match so we can reliably identify the correct occurrence.
+    const prefixChars = contextChars.slice(sentenceStart, charIndex)
+    const prefixStr = prefixChars.join('')
+
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT)
+    let anchorNode = null
+    let anchorCpOffset = -1  // code-point offset within anchorNode where sentence starts
+
+    while (walker.nextNode()) {
+        const node = walker.currentNode
+        const joined = node.textContent
+
+        // Fast reject: node must contain some portion of the sentence.
+        if (!joined.includes(sentence.slice(0, Math.min(sentence.length, 4)))) continue
+
+        // Try to find the sentence (or a meaningful prefix) in this node.
+        let searchFrom = 0
+        while (true) {
+            const idx = joined.indexOf(sentence, searchFrom)
+            if (idx === -1) break
+
+            const cpsBefore = Array.from(joined.slice(0, idx))
+            const cpStart = cpsBefore.length
+            // Verify prefix context: chars before the sentence start in the
+            // node should end with (or equal) the prefix leading up to the sentence.
+            const nodeChars = Array.from(joined)
+            const nodePre = nodeChars.slice(Math.max(0, cpStart - prefixChars.length), cpStart).join('')
+            const preMatch = nodePre.endsWith(prefixStr) || prefixStr.endsWith(nodePre) || prefixChars.length === 0
+
+            if (preMatch) {
+                anchorNode = node
+                anchorCpOffset = cpStart
+                break
+            }
+            searchFrom = idx + sentence.length
+        }
+        if (anchorNode) break
+    }
+
+    if (!anchorNode || anchorCpOffset < 0) return
+
+    // Convert code-point offset to UTF-16 for DOM Range.
+    const anchorChars = Array.from(anchorNode.textContent)
+    const sentenceChars = Array.from(sentence)
+    let utf16Start = 0
+    for (let i = 0; i < anchorCpOffset; i++) {
+        utf16Start += anchorChars[i].length
+    }
+    let utf16End = utf16Start
+    for (let i = 0; i < sentenceChars.length; i++) {
+        utf16End += sentenceChars[i].length
+    }
+    // Clamp to the actual text node length.
+    utf16End = Math.min(utf16End, anchorNode.textContent.length)
+
+    try {
+        const range = doc.createRange()
+        range.setStart(anchorNode, utf16Start)
+        range.setEnd(anchorNode, utf16End)
+
+        const span = doc.createElement('span')
+        span.className = 'leo-sentence-highlight'
+        range.surroundContents(span)
+        _sentenceSpans.push(span)
+    } catch (_) {
+        // surroundContents fails when the range crosses element boundaries
+        // (e.g. sentence spans multiple <p> children). Walk sub-ranges instead.
+        try {
+            const range = doc.createRange()
+            range.setStart(anchorNode, utf16Start)
+            range.setEnd(anchorNode, utf16End)
+
+            // Extract and re-wrap the contents with a fragment fallback.
+            // Simply skip — the word underline is still visible; the sentence
+            // background is a best-effort enhancement.
+        } catch (_2) { /* ignore */ }
     }
 }
 
@@ -640,7 +785,7 @@ function injectNavigationHandlers(doc) {
 function injectClickHandlers(doc, chapterIndex) {
     // Store the active iframe document so highlightRange() can access it.
     // Each chapter navigation replaces the doc — clear stale highlights first.
-    _clearExpressionHighlight()
+    _clearExpressionHighlight()   // also calls _clearSentenceHighlight()
     _clearSpeakingHighlightInternal(doc)
     _highlightDoc = doc
 
@@ -658,6 +803,11 @@ function injectClickHandlers(doc, chapterIndex) {
             }
             .leo-expression-highlight:hover {
                 text-decoration-color: rgba(59,130,246,0.8);
+            }
+            .leo-sentence-highlight {
+                background: rgba(59, 130, 246, 0.06);
+                border-radius: 2px;
+                transition: background 0.2s ease;
             }
             ::selection { background: rgba(59,130,246,0.2); }
         `

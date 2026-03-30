@@ -17,6 +17,8 @@ struct DictionaryLookupData: Sendable {
     let radical: String?         // Kangxi radical character; nil for multi-char words
     /// AI-generated contextual gloss for the word in the sentence it was tapped. Set asynchronously when OpenRouter responds.
     var contextualGloss: String?
+    /// The full sentence (between nearest Chinese punctuation) in which the word was tapped.
+    let contextSentence: String?
 }
 
 // MARK: - Content view
@@ -55,6 +57,17 @@ struct FloatingDictionaryContent: View {
             }
             .padding(.top, 16)
             .padding(.horizontal, 18)
+
+            // MARK: Context sentence — shows the full sentence with the tapped word bolded
+            if let sentence = data.contextSentence, !sentence.isEmpty {
+                Text(attributedSentence(sentence: sentence, word: data.word))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 8)
+                    .padding(.horizontal, 18)
+                    .padding(.bottom, 2)
+            }
 
             // MARK: Contextual gloss (AI-generated, shown first when available)
             if let gloss = data.contextualGloss {
@@ -191,6 +204,25 @@ struct FloatingDictionaryContent: View {
         .background(Color(nsColor: .controlBackgroundColor))
         .clipShape(RoundedRectangle(cornerRadius: 10))
     }
+}
+
+// MARK: - Attributed sentence helper
+
+/// Returns an `AttributedString` with `word` rendered bold + accent color within `sentence`.
+private func attributedSentence(sentence: String, word: String) -> AttributedString {
+    var result = AttributedString(sentence)
+
+    // Find all ranges of `word` in `sentence` and bold + accent them.
+    var searchRange = sentence.startIndex..<sentence.endIndex
+    while let range = sentence.range(of: word, options: .literal, range: searchRange) {
+        if let attrRange = Range(range, in: result) {
+            result[attrRange].font = .system(size: 12, weight: .semibold)
+            result[attrRange].foregroundColor = Color.accentColor
+        }
+        searchRange = range.upperBound..<sentence.endIndex
+    }
+
+    return result
 }
 
 // MARK: - Sub-components

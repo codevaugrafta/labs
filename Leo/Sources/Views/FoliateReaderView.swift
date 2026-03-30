@@ -367,6 +367,20 @@ struct FoliateReaderView: NSViewRepresentable {
                 let alreadyInReview = self.hasReviewCardForWord(word)
                 let showPinyin = self.latestReading.showPinyin
 
+                // Extract the sentence containing the tapped word from the context string.
+                // Uses the same boundary characters as reader.js: 。！？ and newlines.
+                let contextSentence: String? = {
+                    let scalars = Array(context.unicodeScalars)
+                    let boundaries: Set<Unicode.Scalar> = ["。", "！", "？", "\n"]
+                    var start = charIndex
+                    var end = charIndex
+                    while start > 0 && !boundaries.contains(scalars[start - 1]) { start -= 1 }
+                    while end < scalars.count && !boundaries.contains(scalars[end]) { end += 1 }
+                    guard end > start else { return nil }
+                    let sentence = String(String.UnicodeScalarView(scalars[start..<end]))
+                    return sentence.isEmpty ? nil : sentence
+                }()
+
                 DispatchQueue.main.async {
                     self.showNativePanel(
                         word: word,
@@ -377,12 +391,13 @@ struct FoliateReaderView: NSViewRepresentable {
                         alreadyInReview: alreadyInReview,
                         showPinyin: showPinyin,
                         context: context,
+                        contextSentence: contextSentence,
                         webViewX: x,
                         webViewY: y
                     )
                 }
 
-                // Tell JS to highlight the resolved expression in the text.
+                // Tell JS to highlight the resolved expression and its containing sentence.
                 // Wrap strings in arrays for JSONSerialization (requires top-level Array/Dict).
                 if let contextJSON = try? JSONSerialization.data(withJSONObject: [context]),
                    let contextArr = String(data: contextJSON, encoding: .utf8),
@@ -391,11 +406,12 @@ struct FoliateReaderView: NSViewRepresentable {
                     // Extract the escaped string from the JSON array: ["escaped"] → "escaped"
                     let contextLiteral = String(contextArr.dropFirst().dropLast()) // remove [ ]
                     let wordLiteral = String(wordArr.dropFirst().dropLast())
-                    let highlightJS = "highlightRange(\(contextLiteral), \(wordLiteral), \(charIndex))"
+                    let highlightJS = "highlightRange(\(contextLiteral), \(wordLiteral), \(charIndex)); " +
+                        "typeof highlightSentence === 'function' && highlightSentence(\(contextLiteral), \(wordLiteral), \(charIndex))"
                     DispatchQueue.main.async {
                         self.webView?.evaluateJavaScript(highlightJS) { _, error in
                             if let error {
-                                NSLog("[Leo Bridge] highlightRange JS error: \(error)")
+                                NSLog("[Leo Bridge] highlight JS error: \(error)")
                             }
                         }
                     }
@@ -467,6 +483,7 @@ struct FoliateReaderView: NSViewRepresentable {
             alreadyInReview: Bool,
             showPinyin: Bool,
             context: String,
+            contextSentence: String?,
             webViewX: CGFloat,
             webViewY: CGFloat
         ) {
@@ -505,7 +522,8 @@ struct FoliateReaderView: NSViewRepresentable {
                 familiarity: familiarity,
                 alreadyInReview: alreadyInReview,
                 components: components,
-                radical: radical
+                radical: radical,
+                contextSentence: contextSentence
             )
 
             FloatingDictionaryController.shared.show(

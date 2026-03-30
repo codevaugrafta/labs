@@ -15,6 +15,10 @@ extension Notification.Name {
     static let leoToggleTOC = Notification.Name("leoToggleTOC")
     static let leoTogglePinyin = Notification.Name("leoTogglePinyin")
     static let leoToggleSearch = Notification.Name("leoToggleSearch")
+    /// Posted by floating action button to open the library sidebar.
+    static let leoShowLibrary = Notification.Name("leoShowLibrary")
+    /// Posted by floating action button to open the vocabulary sheet.
+    static let leoShowVocabulary = Notification.Name("leoShowVocabulary")
 }
 
 @main
