@@ -15,6 +15,8 @@ struct DictionaryLookupData: Sendable {
     let alreadyInReview: Bool
     let components: [String]?    // Direct Unicode components; nil for multi-char words
     let radical: String?         // Kangxi radical character; nil for multi-char words
+    /// AI-generated contextual gloss for the word in the sentence it was tapped. Set asynchronously when OpenRouter responds.
+    var contextualGloss: String?
 }
 
 // MARK: - Content view
@@ -53,12 +55,22 @@ struct FloatingDictionaryContent: View {
             .padding(.top, 16)
             .padding(.horizontal, 18)
 
+            // MARK: Contextual gloss (AI-generated, shown first when available)
+            if let gloss = data.contextualGloss {
+                Text(gloss)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(.blue)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.top, 8)
+                    .padding(.horizontal, 18)
+            }
+
             // MARK: Definitions
             Group {
                 if data.definitions.count == 1 {
                     Text(data.definitions[0])
                         .font(.system(size: 14))
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(data.contextualGloss != nil ? .secondary : .primary)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
                     VStack(alignment: .leading, spacing: 3) {
@@ -70,13 +82,14 @@ struct FloatingDictionaryContent: View {
                                     .frame(width: 16, alignment: .trailing)
                                 Text(def)
                                     .font(.system(size: 13))
+                                    .foregroundStyle(data.contextualGloss != nil ? .secondary : .primary)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
                         }
                     }
                 }
             }
-            .padding(.top, 8)
+            .padding(.top, data.contextualGloss != nil ? 4 : 8)
             .padding(.horizontal, 18)
 
             // MARK: Components (single-char only)

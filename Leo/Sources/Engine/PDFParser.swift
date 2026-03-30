@@ -37,11 +37,11 @@ struct PDFParser: Sendable {
 
             // Check if text is usable (contains Chinese characters)
             if containsChinese(pdfkitText) && pdfkitText.count > 10 {
-                pages.append(Page(id: i, text: pdfkitText))
+                pages.append(Page(id: i, text: cleanupChineseOCR(pdfkitText)))
             } else {
                 // Fallback: OCR via Apple Vision
                 let ocrText = ocrPage(page)
-                pages.append(Page(id: i, text: ocrText))
+                pages.append(Page(id: i, text: cleanupChineseOCR(ocrText)))
             }
         }
 
@@ -90,7 +90,7 @@ struct PDFParser: Sendable {
             nonisolated(unsafe) var result = "(OCR failed)"
             let semaphore = DispatchSemaphore(value: 0)
             let capturedImage = cgImage
-            Task {
+            Task.detached {
                 result = await ocrPageStructured(cgImage: capturedImage)
                 semaphore.signal()
             }
@@ -170,6 +170,31 @@ struct PDFParser: Sendable {
         return sorted
             .compactMap { $0.topCandidates(1).first?.string }
             .joined(separator: "\n")
+    }
+
+    /// Post-process OCR text: remove spaces between CJK characters (OCR artifacts),
+    /// strip isolated page numbers, normalize whitespace.
+    private func cleanupChineseOCR(_ text: String) -> String {
+        var result = text
+        // Remove spaces between CJK characters ("不 能" → "不能")
+        let cjkSpace = #"([\u4E00-\u9FFF\u3400-\u4DBF])\s+([\u4E00-\u9FFF\u3400-\u4DBF])"#
+        for _ in 0..<5 {
+            let before = result
+            result = result.replacingOccurrences(of: cjkSpace, with: "$1$2", options: .regularExpression)
+            if result == before { break }
+        }
+        // Remove isolated page numbers (lines that are just 1-4 digits)
+        let lines = result.components(separatedBy: .newlines)
+        let filtered = lines.filter { line in
+            let t = line.trimmingCharacters(in: .whitespaces)
+            if t.isEmpty { return true }
+            return !(Int(t) != nil && t.count <= 4)
+        }
+        result = filtered.joined(separator: "\n")
+        while result.contains("\n\n\n") {
+            result = result.replacingOccurrences(of: "\n\n\n", with: "\n\n")
+        }
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func containsChinese(_ text: String) -> Bool {

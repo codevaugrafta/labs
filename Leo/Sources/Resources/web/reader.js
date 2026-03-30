@@ -66,7 +66,7 @@ view.addEventListener('draw-annotation', e => {
 
 // --- Reader chrome (theme + typography) — merged Swift → foliate setStyles ---
 
-window._leoLastTheme = { bg: '#FAFAFA', fg: '#1A1A1A' }
+window._leoLastTheme = { bg: '#FBFBFB', fg: '#000000' }
 window._leoLastPrefs = {
     fontSizePt: 18,
     lineHeight: 1.8,
@@ -106,6 +106,15 @@ function buildLeoReaderBodyCSS() {
                 text-rendering: optimizeLegibility;
                 -webkit-font-smoothing: antialiased;
                 transition: background-color 0.3s ease, color 0.3s ease;
+                box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.08);
+            }
+            body::after {
+                content: '';
+                position: fixed;
+                inset: 0;
+                background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='4' height='4' fill='%23000' opacity='0.015'/%3E%3C/svg%3E");
+                pointer-events: none;
+                z-index: 9999;
             }
             p { margin-bottom: 1.2em; }
             h1, h2, h3 { text-indent: 0; text-align: center; margin-top: 2em; font-family: ${LEO_FONT_STACK}; }
@@ -168,6 +177,11 @@ window.openBook = function(request) {
 
             // open() sets up book data and creates the renderer — it does NOT navigate.
             await view.open(file)
+
+            // Two-page spread on wide screens (Apple Books default)
+            if (window.innerWidth > 900 && view.renderer?.setAttribute) {
+                view.renderer.setAttribute('spread', 'auto')
+            }
 
             postToSwift('loaded', {
                 title: view.book?.metadata?.title ?? '',
@@ -243,12 +257,11 @@ window.setTheme = function(themeP) {
     document.body.style.transition = 'background-color 0.3s ease, color 0.3s ease'
     document.body.style.background = bg
 
-    // Derive accent color per theme: sepia uses warm amber, dark uses a
-    // softer blue, light uses the system blue.
-    // Digital Vellum bg values: dark=#1A1A1A, sepia=#F5F0E8, light=#FAFAFA
+    // Derive accent color per theme: sepia = warm amber, dark = soft blue, light = system blue.
+    // Apple Books–matched bg values: dark=#121212, sepia=#F8F1E3, light=#FBFBFB
     const accent = themeP.accent ?? (
-        bg === '#1A1A1A' ? '#4CA6FF' :
-        bg === '#F5F0E8' ? '#B87333' :
+        bg === '#121212' ? '#4CA6FF' :
+        bg === '#F8F1E3' ? '#B87333' :
         '#007AFF'
     )
     document.documentElement.style.setProperty('--leo-accent', accent)
@@ -719,6 +732,9 @@ function injectClickHandlers(doc, chapterIndex) {
                 outerY = iframeRect.top  + rect.bottom
             }
         } catch (_) { /* cross-origin guard — fall back to iframe-local coords */ }
+
+        // Clear any previous expression highlight before applying the new one.
+        _clearExpressionHighlight()
 
         postToSwift('wordTap', {
             char: clickedChar,

@@ -104,9 +104,11 @@ final class FSRSEngine {
         return (try? modelContext.fetch(descriptor)) ?? []
     }
 
-    /// Create a new card for a word.
-    func createCard(for word: String) -> FSRSCard {
+    /// Create a new card for a word, optionally storing the sentence context and AI-generated definition.
+    func createCard(for word: String, context: String? = nil, definition: String? = nil) -> FSRSCard {
         let card = FSRSCard(word: word)
+        card.contextSentence = context
+        card.contextualDefinition = definition
         modelContext.insert(card)
         trySave()
         return card

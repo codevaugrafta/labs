@@ -67,11 +67,28 @@ struct ReviewView: View {
 
             Spacer()
 
-            // Word (always visible)
-            Text(card.word)
-                .font(.system(size: 48, weight: .medium))
+            // MARK: Card front — sentence context or bare word
+            if let sentence = card.contextSentence, !sentence.isEmpty {
+                // Show the sentence with the target word highlighted as the recall cue
+                Text(highlightedSentence(sentence: sentence, word: card.word))
+                    .font(.system(size: 20, weight: .regular))
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 420)
+                    .padding(.horizontal)
+            } else {
+                // Fallback: bare word
+                Text(card.word)
+                    .font(.system(size: 48, weight: .medium))
+            }
 
             if showAnswer {
+                // Word (always shown on the answer side when context was the cue)
+                if card.contextSentence != nil {
+                    Text(card.word)
+                        .font(.system(size: 36, weight: .bold))
+                        .padding(.top, 4)
+                }
+
                 // Pinyin
                 if let entry = entries.first {
                     Text(entry.pinyinDisplay)
@@ -91,6 +108,16 @@ struct ReviewView: View {
                         .background(Color(hex: freq.tier.color).opacity(0.2))
                         .foregroundStyle(Color(hex: freq.tier.color))
                         .clipShape(Capsule())
+                }
+
+                // Contextual definition (AI-generated)
+                if let contextDef = card.contextualDefinition {
+                    Text(contextDef)
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundStyle(.blue)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 420)
+                        .padding(.horizontal)
                 }
 
                 // Definitions
@@ -144,6 +171,28 @@ struct ReviewView: View {
         .padding()
         .accessibilityIdentifier("leo.review.root")
         .accessibilityElement(children: .contain)
+    }
+
+    /// Returns an `AttributedString` with the target `word` bolded and tinted in accent color
+    /// within the full `sentence`. Falls back to plain sentence text if the word is not found.
+    private func highlightedSentence(sentence: String, word: String) -> AttributedString {
+        var attributed = AttributedString(sentence)
+
+        guard !word.isEmpty,
+              let range = sentence.range(of: word) else {
+            return attributed
+        }
+
+        // Map String.Index range to AttributedString.Index range
+        let start = AttributedString.Index(range.lowerBound, within: attributed)
+        let end = AttributedString.Index(range.upperBound, within: attributed)
+
+        if let start, let end, start < end {
+            attributed[start..<end].font = .system(size: 20, weight: .bold)
+            attributed[start..<end].foregroundColor = .accentColor
+        }
+
+        return attributed
     }
 
     private func ratingButton(_ label: String, color: Color, rating: Rating) -> some View {

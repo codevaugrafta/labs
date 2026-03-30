@@ -46,7 +46,8 @@ struct FoliateReaderView: NSViewRepresentable {
 
     /// Called when the user presses "I know this" or "Add to review" inside the JS popup.
     /// The ReaderView uses this to drive FamiliarityTracker / FSRSEngine.
-    let onPopupAction: (_ action: PopupAction, _ word: String) -> Void
+    /// `context` is the sentence in which the word was tapped, forwarded to FSRSEngine for sentence-based flashcards.
+    let onPopupAction: (_ action: PopupAction, _ word: String, _ context: String) -> Void
 
     /// Maps a resolved word to its familiarity for the JS popup badge.
     let familiarityForWord: (String) -> FamiliarityState
@@ -152,7 +153,7 @@ struct FoliateReaderView: NSViewRepresentable {
         let onLoadSuccess: () -> Void
         let onLoadError: (String) -> Void
         let onWordTapped: (String, String, Int, CGFloat, CGFloat) -> Void
-        let onPopupAction: (PopupAction, String) -> Void
+        let onPopupAction: (PopupAction, String, String) -> Void
         let familiarityForWord: (String) -> FamiliarityState
         let hasReviewCardForWord: (String) -> Bool
         let onTOCLoaded: (([TOCItem]) -> Void)?
@@ -172,7 +173,7 @@ struct FoliateReaderView: NSViewRepresentable {
             onLoadSuccess: @escaping () -> Void,
             onLoadError: @escaping (String) -> Void,
             onWordTapped: @escaping (String, String, Int, CGFloat, CGFloat) -> Void,
-            onPopupAction: @escaping (PopupAction, String) -> Void,
+            onPopupAction: @escaping (PopupAction, String, String) -> Void,
             familiarityForWord: @escaping (String) -> FamiliarityState,
             hasReviewCardForWord: @escaping (String) -> Bool,
             onTOCLoaded: (([TOCItem]) -> Void)?,
@@ -399,11 +400,12 @@ struct FoliateReaderView: NSViewRepresentable {
             case "popupAction":
                 let action = payload["action"] as? String ?? ""
                 let word = payload["word"] as? String ?? ""
+                let sentence = payload["sentence"] as? String ?? ""
                 NSLog("[Leo Bridge] Popup action: \(action) for '\(word)'")
                 DispatchQueue.main.async {
                     switch action {
-                    case "markKnown": self.onPopupAction(.markKnown, word)
-                    case "addToSRS":  self.onPopupAction(.addToSRS, word)
+                    case "markKnown": self.onPopupAction(.markKnown, word, sentence)
+                    case "addToSRS":  self.onPopupAction(.addToSRS, word, sentence)
                     default: break
                     }
                 }
@@ -507,12 +509,12 @@ struct FoliateReaderView: NSViewRepresentable {
                 screenPoint: screenPoint,
                 onKnow: { [weak self] in
                     guard let self else { return }
-                    self.onPopupAction(.markKnown, word)
+                    self.onPopupAction(.markKnown, word, context)
                     FloatingDictionaryController.shared.dismiss()
                 },
                 onReview: { [weak self] in
                     guard let self else { return }
-                    self.onPopupAction(.addToSRS, word)
+                    self.onPopupAction(.addToSRS, word, context)
                     FloatingDictionaryController.shared.dismiss()
                 },
                 onListen: {
@@ -621,10 +623,11 @@ struct FoliateReaderView: NSViewRepresentable {
 
         /// Push theme + Reading settings into `reader.js` (`setTheme` + `applyReadingPreferences`).
         func pushReaderChrome(webView: WKWebView) {
+            // Apple Books–matched theme colors
             let themeData: [String: String] = switch latestTheme {
-            case .light: ["bg": "#FFFFFF", "fg": "#1A1A1A"]
-            case .dark: ["bg": "#1E1E1E", "fg": "#D4D4D4"]
-            case .sepia: ["bg": "#F5EDDC", "fg": "#4A3520"]
+            case .light: ["bg": "#FBFBFB", "fg": "#000000"]
+            case .dark:  ["bg": "#121212", "fg": "#B0B0B0"]
+            case .sepia: ["bg": "#F8F1E3", "fg": "#2C1F0E"]
             }
             let themeStr: String
             do {

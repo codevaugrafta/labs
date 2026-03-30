@@ -12,6 +12,7 @@ struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var runtime: LeoRuntime
     @Query(sort: \Book.lastOpenedAt, order: .reverse) private var books: [Book]
+    @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
     @State private var selectedBook: Book?
     @State private var showAnkiImporter = false
     @State private var ankiImportMessage: String?
@@ -23,7 +24,7 @@ struct ContentView: View {
     @State private var pdfPreparationTasks: [UUID: Task<Void, Never>] = [:]
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             LibrarySidebar(
                 books: books,
                 selectedBook: $selectedBook,
@@ -46,6 +47,7 @@ struct ContentView: View {
                 EmptyLibraryView(onImport: presentBookImportPanel)
             }
         }
+        .navigationSplitViewStyle(.prominentDetail)
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .accessibilityIdentifier("leo.root.split")
         .fileImporter(
@@ -391,26 +393,38 @@ struct ContentView: View {
 
         let bookID = book.id
         let pdfURL = URL(fileURLWithPath: pdfPath)
-        pdfPreparationTasks[bookID] = Task { @MainActor in
-            defer { pdfPreparationTasks.removeValue(forKey: bookID) }
+        pdfPreparationTasks[bookID] = Task {
             do {
-                _ = try PDFConverter().convert(pdfURL: pdfURL, outputEPUBURL: outputURL)
-                book.derivedEPUBPath = outputURL.path
-                book.pdfPreparationStatus = .ready
-                book.pdfPreparationError = nil
-                LocalServer.shared.registerBook(id: book.id.uuidString, filePath: outputURL.path)
-                try modelContext.save()
+                _ = try await Task.detached(priority: .userInitiated) {
+                    try PDFConverter().convert(pdfURL: pdfURL, outputEPUBURL: outputURL)
+                }.value
+                await MainActor.run {
+                    book.derivedEPUBPath = outputURL.path
+                    book.pdfPreparationStatus = .ready
+                    book.pdfPreparationError = nil
+                    LocalServer.shared.registerBook(id: book.id.uuidString, filePath: outputURL.path)
+                    do {
+                        try modelContext.save()
+                    } catch {
+                        NSLog("[Leo] Failed to save Book View ready state for '\(book.title)': \(error)")
+                    }
+                }
             } catch {
-                book.pdfPreparationStatus = .failed
-                book.pdfPreparationError = error.localizedDescription
-                if forceRetry && userInitiated {
-                    pdfConvertError = error.localizedDescription
+                await MainActor.run {
+                    book.pdfPreparationStatus = .failed
+                    book.pdfPreparationError = error.localizedDescription
+                    if forceRetry && userInitiated {
+                        pdfConvertError = error.localizedDescription
+                    }
+                    do {
+                        try modelContext.save()
+                    } catch {
+                        NSLog("[Leo] Failed to save Book View failure for '\(book.title)': \(error)")
+                    }
                 }
-                do {
-                    try modelContext.save()
-                } catch {
-                    NSLog("[Leo] Failed to save Book View failure for '\(book.title)': \(error)")
-                }
+            }
+            await MainActor.run {
+                pdfPreparationTasks.removeValue(forKey: bookID)
             }
         }
     }
@@ -583,38 +597,11 @@ struct LibrarySidebar: View {
             }
 
             Section("Vocabulary") {
-                let known = vocabulary.filter { $0.state == .known }.count
-                let learning = vocabulary.filter { $0.state == .learning || $0.state == .familiar }.count
-                let newWords = vocabulary.filter { $0.state == .unknown }.count
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("\(known)")
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(.green)
-                        Text("Known")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("\(learning)")
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(.yellow)
-                        Text("Learning")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("\(newWords)")
-                            .font(.title3.weight(.semibold))
-                            .foregroundStyle(.red)
-                        Text("New")
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.vertical, 4)
+                let due = dueCards.filter { $0.dueDate <= Date() }.count
+                Text("\(vocabulary.count) words · \(due) due")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 2)
             }
 
             Section("Library") {

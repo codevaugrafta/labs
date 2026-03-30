@@ -29,8 +29,20 @@ final class FloatingDictionaryController {
     private var hostingView: NSHostingView<FloatingDictionaryContent>?
     private var clickOutsideMonitor: Any?
     private var escapeMonitor: Any?
+    /// The word currently displayed in the panel — used to match incoming contextual glosses.
+    private var currentWord: String?
+    /// The full data snapshot for the current panel, so we can inject the gloss when it arrives.
+    private var currentData: DictionaryLookupData?
+    private var currentOnKnow: (() -> Void)?
+    private var currentOnReview: (() -> Void)?
+    private var currentOnListen: (() -> Void)?
+    private var notificationObserver: Any?
+    /// The screen point used for the last `show()` call — reused when the gloss arrives.
+    private var lastScreenPoint: CGPoint = .zero
 
-    private init() {}
+    private init() {
+        setupNotificationObserver()
+    }
 
     // MARK: - Show
 
@@ -42,6 +54,13 @@ final class FloatingDictionaryController {
         onReview: @escaping () -> Void,
         onListen: @escaping () -> Void
     ) {
+        currentWord = data.word
+        currentData = data
+        currentOnKnow = onKnow
+        currentOnReview = onReview
+        currentOnListen = onListen
+        lastScreenPoint = screenPoint
+
         if let existingPanel = panel {
             updateContent(in: existingPanel, data: data, onKnow: onKnow, onReview: onReview, onListen: onListen)
             repositionPanel(existingPanel, near: screenPoint)
@@ -111,6 +130,38 @@ final class FloatingDictionaryController {
             hosting.sizingOptions = [.preferredContentSize]
             self.hostingView = hosting
             panel.contentView = hosting
+        }
+    }
+
+    // MARK: - Contextual gloss
+
+    private func setupNotificationObserver() {
+        notificationObserver = NotificationCenter.default.addObserver(
+            forName: .leoContextualDefinitionReady,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self,
+                  let word = notification.userInfo?["word"] as? String,
+                  let gloss = notification.userInfo?["context"] as? String else { return }
+            self.updateContextualGloss(word: word, gloss: gloss)
+        }
+    }
+
+    /// Injects the AI-generated gloss into the panel if it is still showing the same word.
+    private func updateContextualGloss(word: String, gloss: String) {
+        guard word == currentWord,
+              var data = currentData,
+              let onKnow = currentOnKnow,
+              let onReview = currentOnReview,
+              let onListen = currentOnListen else { return }
+
+        data.contextualGloss = gloss
+        currentData = data
+
+        if let existingPanel = panel {
+            updateContent(in: existingPanel, data: data, onKnow: onKnow, onReview: onReview, onListen: onListen)
+            repositionPanel(existingPanel, near: lastScreenPoint)
         }
     }
 

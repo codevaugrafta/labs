@@ -15,6 +15,10 @@ final class FSRSCard {
     var createdAt: Date
     /// Per-card trainable decay (FSRS v6 w[20]). Nil means use global param default.
     var decay: Double?
+    /// The sentence in which the word was encountered. Nil for cards created without context.
+    var contextSentence: String?
+    /// AI-generated contextual gloss for the word in context. Nil when not yet computed or unavailable.
+    var contextualDefinition: String?
 
     init(word: String) {
         self.id = UUID()
@@ -28,6 +32,8 @@ final class FSRSCard {
         self.state = .new
         self.createdAt = Date()
         self.decay = nil
+        self.contextSentence = nil
+        self.contextualDefinition = nil
     }
 }
 
