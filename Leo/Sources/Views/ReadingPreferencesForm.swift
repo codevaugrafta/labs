@@ -7,6 +7,14 @@ struct ReadingPreferencesForm: View {
     @Binding var textDirection: String
     @Binding var showPinyin: Bool
     @Binding var showHighlights: Bool
+    @Binding var pageStyle: String
+
+    private var pageStyleIsPage: Binding<Bool> {
+        Binding(
+            get: { pageStyle == "page" },
+            set: { pageStyle = $0 ? "page" : "clean" }
+        )
+    }
 
     var body: some View {
         Form {
@@ -31,6 +39,8 @@ struct ReadingPreferencesForm: View {
                     .accessibilityIdentifier("leo.readingPrefs.showPinyin")
                 Toggle("Show familiarity highlights", isOn: $showHighlights)
                     .accessibilityIdentifier("leo.readingPrefs.showHighlights")
+                Toggle("Page shadows & texture", isOn: pageStyleIsPage)
+                    .accessibilityIdentifier("leo.readingPrefs.pageStyle")
             }
         }
         .accessibilityIdentifier("leo.readingPrefs.form")

@@ -357,13 +357,25 @@ struct ReaderView: View {
         }
     }
 
+    // MARK: - Theme Background
+
+    private var themeBackground: Color {
+        switch theme {
+        case .light: Color(red: 0.984, green: 0.984, blue: 0.984)  // #FBFBFB
+        case .sepia: Color(red: 0.973, green: 0.945, blue: 0.890)  // #F8F1E3
+        case .dark:  Color(red: 0.071, green: 0.071, blue: 0.071)  // #121212
+        }
+    }
+
     // MARK: - Body
 
     var body: some View {
         ZStack(alignment: .top) {
             readerContent
                 .ignoresSafeArea(.all, edges: .top)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .background(themeBackground)
         .overlay(alignment: .bottom) { progressBar }
         .overlay(alignment: .topLeading) { uiTestProbes }
         .overlay(alignment: .top) { searchBarOverlay }
@@ -533,7 +545,7 @@ struct ReaderView: View {
         }
     }
 
-    // Called when the user taps "I know this" or "Add to review" inside the JS popup.
+    // Called when the user taps "I know this", "Add to review", or a familiarity state button in the floating panel.
     private func handlePopupAction(_ action: FoliateReaderView.PopupAction, word: String, context: String) {
         NSLog("[Leo UI] Popup action: \(action) for '\(word)'")
         switch action {
@@ -546,6 +558,8 @@ struct ReaderView: View {
                 let sentenceContext = context.isEmpty ? nil : context
                 _ = fsrs.createCard(for: word, context: sentenceContext)
             }
+        case .setFamiliarity(let newState):
+            familiarityTracker?.resetState(word, to: newState)
         }
     }
 

@@ -36,6 +36,7 @@ final class FloatingDictionaryController {
     private var currentOnKnow: (() -> Void)?
     private var currentOnReview: (() -> Void)?
     private var currentOnListen: (() -> Void)?
+    private var currentOnFamiliarityChange: ((FamiliarityState) -> Void)?
     private var notificationObserver: Any?
     /// The screen point used for the last `show()` call — reused when the gloss arrives.
     private var lastScreenPoint: CGPoint = .zero
@@ -52,23 +53,25 @@ final class FloatingDictionaryController {
         screenPoint: CGPoint,
         onKnow: @escaping () -> Void,
         onReview: @escaping () -> Void,
-        onListen: @escaping () -> Void
+        onListen: @escaping () -> Void,
+        onFamiliarityChange: @escaping (FamiliarityState) -> Void
     ) {
         currentWord = data.word
         currentData = data
         currentOnKnow = onKnow
         currentOnReview = onReview
         currentOnListen = onListen
+        currentOnFamiliarityChange = onFamiliarityChange
         lastScreenPoint = screenPoint
 
         if let existingPanel = panel {
-            updateContent(in: existingPanel, data: data, onKnow: onKnow, onReview: onReview, onListen: onListen)
+            updateContent(in: existingPanel, data: data, onKnow: onKnow, onReview: onReview, onListen: onListen, onFamiliarityChange: onFamiliarityChange)
             repositionPanel(existingPanel, near: screenPoint)
             if !existingPanel.isVisible {
                 existingPanel.orderFront(nil)
             }
         } else {
-            let newPanel = makePanel(data: data, onKnow: onKnow, onReview: onReview, onListen: onListen)
+            let newPanel = makePanel(data: data, onKnow: onKnow, onReview: onReview, onListen: onListen, onFamiliarityChange: onFamiliarityChange)
             self.panel = newPanel
             repositionPanel(newPanel, near: screenPoint)
 
@@ -118,14 +121,16 @@ final class FloatingDictionaryController {
         data: DictionaryLookupData,
         onKnow: @escaping () -> Void,
         onReview: @escaping () -> Void,
-        onListen: @escaping () -> Void
+        onListen: @escaping () -> Void,
+        onFamiliarityChange: @escaping (FamiliarityState) -> Void
     ) -> FloatingDictionaryPanel {
         let content = FloatingDictionaryContent(
             data: data,
             onKnow: { onKnow() },
             onReview: { onReview() },
             onListen: { onListen() },
-            onDismiss: { [weak self] in self?.dismiss() }
+            onDismiss: { [weak self] in self?.dismiss() },
+            onFamiliarityChange: { onFamiliarityChange($0) }
         )
 
         let hosting = NSHostingView(rootView: content)
@@ -142,14 +147,16 @@ final class FloatingDictionaryController {
         data: DictionaryLookupData,
         onKnow: @escaping () -> Void,
         onReview: @escaping () -> Void,
-        onListen: @escaping () -> Void
+        onListen: @escaping () -> Void,
+        onFamiliarityChange: @escaping (FamiliarityState) -> Void
     ) {
         let newContent = FloatingDictionaryContent(
             data: data,
             onKnow: { onKnow() },
             onReview: { onReview() },
             onListen: { onListen() },
-            onDismiss: { [weak self] in self?.dismiss() }
+            onDismiss: { [weak self] in self?.dismiss() },
+            onFamiliarityChange: { onFamiliarityChange($0) }
         )
 
         if let hosting = hostingView {
@@ -183,13 +190,14 @@ final class FloatingDictionaryController {
               var data = currentData,
               let onKnow = currentOnKnow,
               let onReview = currentOnReview,
-              let onListen = currentOnListen else { return }
+              let onListen = currentOnListen,
+              let onFamiliarityChange = currentOnFamiliarityChange else { return }
 
         data.contextualGloss = gloss
         currentData = data
 
         if let existingPanel = panel {
-            updateContent(in: existingPanel, data: data, onKnow: onKnow, onReview: onReview, onListen: onListen)
+            updateContent(in: existingPanel, data: data, onKnow: onKnow, onReview: onReview, onListen: onListen, onFamiliarityChange: onFamiliarityChange)
             repositionPanel(existingPanel, near: lastScreenPoint)
         }
     }

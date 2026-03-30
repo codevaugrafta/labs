@@ -54,6 +54,7 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebarContent
+                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 300)
         } detail: {
             if let book = selectedBook {
                 ReaderView(

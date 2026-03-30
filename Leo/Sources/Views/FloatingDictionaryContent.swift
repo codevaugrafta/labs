@@ -30,6 +30,7 @@ struct FloatingDictionaryContent: View {
     let onReview: () -> Void
     let onListen: () -> Void
     let onDismiss: () -> Void
+    let onFamiliarityChange: (FamiliarityState) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -127,10 +128,31 @@ struct FloatingDictionaryContent: View {
                 .padding(.horizontal, 18)
             }
 
-            // MARK: Familiarity
-            FamiliarityPill(state: data.familiarity)
-                .padding(.top, 6)
-                .padding(.horizontal, 18)
+            // MARK: Familiarity — interactive state picker
+            HStack(spacing: 6) {
+                ForEach(FamiliarityState.allCases, id: \.self) { state in
+                    Button(action: { onFamiliarityChange(state) }) {
+                        Text(state.label)
+                            .font(.system(size: 10, weight: data.familiarity == state ? .semibold : .regular))
+                            .foregroundStyle(data.familiarity == state ? .white : .secondary)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(
+                                data.familiarity == state ? familiarityColor(state) : Color.clear,
+                                in: Capsule()
+                            )
+                            .overlay(
+                                Capsule().strokeBorder(
+                                    data.familiarity == state ? Color.clear : Color.secondary.opacity(0.3),
+                                    lineWidth: 0.5
+                                )
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.top, 6)
+            .padding(.horizontal, 18)
 
             Divider()
                 .padding(.top, 10)
@@ -194,28 +216,13 @@ private struct HSKBadge: View {
     }
 }
 
-private struct FamiliarityPill: View {
-    let state: FamiliarityState
-
-    var body: some View {
-        HStack(spacing: 4) {
-            Circle()
-                .fill(stateColor)
-                .frame(width: 6, height: 6)
-            Text(state.label)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var stateColor: Color {
-        switch state {
-        case .unknown:  .red
-        case .seen:     .orange
-        case .learning: .yellow
-        case .familiar: .gray
-        case .known:    .green
-        }
+private func familiarityColor(_ state: FamiliarityState) -> Color {
+    switch state {
+    case .unknown:  .red
+    case .seen:     .orange
+    case .learning: .yellow
+    case .familiar: .gray
+    case .known:    .green
     }
 }
 

@@ -16,13 +16,16 @@ struct LeoReadingChromePreferences: Equatable {
     var textDirection: String
     var showPinyin: Bool
     var showHighlights: Bool
+    /// `"clean"` — no shadows or texture (default); `"page"` — book-page shadows + paper texture.
+    var pageStyle: String
 
     static let defaultPrefs = LeoReadingChromePreferences(
         fontSize: 18,
         lineHeight: 1.7,
         textDirection: "horizontal",
         showPinyin: false,
-        showHighlights: true
+        showHighlights: true,
+        pageStyle: "clean"
     )
 }
 
@@ -64,6 +67,7 @@ struct FoliateReaderView: NSViewRepresentable {
     enum PopupAction {
         case markKnown
         case addToSRS
+        case setFamiliarity(FamiliarityState)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -519,6 +523,10 @@ struct FoliateReaderView: NSViewRepresentable {
                 },
                 onListen: {
                     NotificationCenter.default.post(name: .leoPlayTTS, object: word)
+                },
+                onFamiliarityChange: { [weak self] newState in
+                    guard let self else { return }
+                    self.onPopupAction(.setFamiliarity(newState), word, context)
                 }
             )
 
@@ -648,6 +656,7 @@ struct FoliateReaderView: NSViewRepresentable {
                 "textDirection": latestReading.textDirection,
                 "showPinyin": latestReading.showPinyin,
                 "showHighlights": latestReading.showHighlights,
+                "pageStyle": latestReading.pageStyle,
             ]
             let prefsStr: String
             do {
