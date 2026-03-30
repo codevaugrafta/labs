@@ -11,7 +11,7 @@ struct ReaderView: View {
     let book: Book
     let onPreparePDFBookView: (Book) -> Void
     let onRetryPDFBookView: (Book) -> Void
-    @State private var theme: ReadingTheme = .light
+    @AppStorage("leo.readingTheme") private var theme: ReadingTheme = .light
     @State private var readerFailureMessage: String?
     @State private var familiarityTracker: FamiliarityTracker?
     @State private var lastReadAloudSnippet: String = ""
@@ -213,21 +213,29 @@ struct ReaderView: View {
     private var floatingToolbar: some View {
         if chromeVisible {
             HStack(spacing: 20) {
-                if usesFoliateReader {
-                    Picker("", selection: $theme) {
-                        ForEach(ReadingTheme.allCases) { t in
-                            Text(t.label).tag(t)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .frame(width: 160)
-                    .accessibilityIdentifier("leo.toolbar.theme")
-                }
-
                 Spacer()
 
                 if usesFoliateReader {
+                    Button { showReadingChromePopover.toggle() } label: {
+                        Text("Aa")
+                            .font(.system(size: 15, weight: .medium, design: .serif))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("leo.toolbar.readingLayout")
+                    .popover(isPresented: $showReadingChromePopover, arrowEdge: .bottom) {
+                        ReadingPreferencesForm(
+                            theme: $theme,
+                            fontSize: $readingFontSize,
+                            lineHeight: $readingLineHeight,
+                            textDirection: $readingTextDirection,
+                            showPinyin: $readingShowPinyin,
+                            showHighlights: $readingShowHighlights,
+                            pageStyle: $readingPageStyle,
+                            spreadMode: $readingSpreadMode
+                        )
+                    }
+
                     Button {
                         coordinatorBridge.coordinator?.requestTOC()
                         showTOCPanel.toggle()
@@ -243,29 +251,6 @@ struct ReaderView: View {
                             showTOCPanel = false
                             coordinatorBridge.coordinator?.goToTocItem(href)
                         }
-                    }
-
-                    Button {
-                        showReadingChromePopover.toggle()
-                    } label: {
-                        Image(systemName: "textformat.size")
-                            .font(.system(size: 14))
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("leo.toolbar.readingLayout")
-                    .popover(isPresented: $showReadingChromePopover, arrowEdge: .bottom) {
-                        ReadingPreferencesForm(
-                            fontSize: $readingFontSize,
-                            lineHeight: $readingLineHeight,
-                            textDirection: $readingTextDirection,
-                            showPinyin: $readingShowPinyin,
-                            showHighlights: $readingShowHighlights,
-                            pageStyle: $readingPageStyle,
-                            spreadMode: $readingSpreadMode
-                        )
-                        .padding()
-                        .frame(minWidth: 320, minHeight: 280)
                     }
                 }
 

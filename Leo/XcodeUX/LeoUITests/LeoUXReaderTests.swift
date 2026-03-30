@@ -29,11 +29,8 @@ final class LeoUXReaderTests: XCTestCase, @unchecked Sendable {
     func testReader_withFixture_showsThemeToolbarAndDictionarySmoke() throws {
         XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 25))
 
-        let theme = LeoUXHarness.anyElement(in: app, identifier: "leo.toolbar.theme")
-        XCTAssertTrue(theme.waitForExistence(timeout: 20), "Theme picker should appear when Smoke EPUB is selected")
-
-        let layout = LeoUXHarness.button(in: app, identifier: "leo.toolbar.readingLayout")
-        XCTAssertTrue(layout.waitForExistence(timeout: 8), "Reading layout control should appear for EPUB")
+        let aaButton = LeoUXHarness.anyElement(in: app, identifier: "leo.toolbar.readingLayout")
+        XCTAssertTrue(aaButton.waitForExistence(timeout: 20), "Aa button should appear when Smoke EPUB is selected")
 
         let dictSmoke = LeoUXHarness.anyElement(in: app, identifier: "leo.reader.dictionarySmoke")
         XCTAssertTrue(dictSmoke.waitForExistence(timeout: 35), "Dictionary smoke label should appear after cedict load")
@@ -46,18 +43,18 @@ final class LeoUXReaderTests: XCTestCase, @unchecked Sendable {
 
     func testReader_readingLayout_popoverShowsTypographyControls() throws {
         XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 25))
-        XCTAssertTrue(LeoUXHarness.anyElement(in: app, identifier: "leo.toolbar.theme").waitForExistence(timeout: 20))
         let layoutBtn = LeoUXHarness.button(in: app, identifier: "leo.toolbar.readingLayout")
-        XCTAssertTrue(layoutBtn.waitForExistence(timeout: 8))
+        XCTAssertTrue(layoutBtn.waitForExistence(timeout: 20))
         layoutBtn.click()
         let prefs = LeoUXHarness.anyElement(in: app, identifier: "leo.readingPrefs.form")
         XCTAssertTrue(prefs.waitForExistence(timeout: 12), "Popover should host ReadingPreferencesForm")
-        XCTAssertTrue(app.sliders.firstMatch.waitForExistence(timeout: 6), "Popover should expose typography controls")
+        let themeGrid = LeoUXHarness.anyElement(in: app, identifier: "leo.readingPrefs.themeGrid")
+        XCTAssertTrue(themeGrid.waitForExistence(timeout: 6), "Popover should expose theme card grid")
     }
 
     func testReader_startSession_showsActiveTimerChrome() throws {
         XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 25))
-        XCTAssertTrue(LeoUXHarness.anyElement(in: app, identifier: "leo.toolbar.theme").waitForExistence(timeout: 20))
+        XCTAssertTrue(LeoUXHarness.anyElement(in: app, identifier: "leo.toolbar.readingLayout").waitForExistence(timeout: 20))
         let start = LeoUXHarness.button(in: app, label: "Start Session")
         XCTAssertTrue(start.waitForExistence(timeout: 10))
         start.click()
@@ -82,7 +79,7 @@ final class LeoUXReaderTests: XCTestCase, @unchecked Sendable {
         )
 
         XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 25))
-        XCTAssertTrue(LeoUXHarness.anyElement(in: app, identifier: "leo.toolbar.theme").waitForExistence(timeout: 20))
+        XCTAssertTrue(LeoUXHarness.anyElement(in: app, identifier: "leo.toolbar.readingLayout").waitForExistence(timeout: 20))
         let firstSnapshot = try waitForLocatorSnapshot(
             timeout: 35,
             failureMessage: "Expected Leo to report its saved locator"
@@ -101,7 +98,7 @@ final class LeoUXReaderTests: XCTestCase, @unchecked Sendable {
         )
 
         XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 25))
-        XCTAssertTrue(LeoUXHarness.anyElement(in: app, identifier: "leo.toolbar.theme").waitForExistence(timeout: 20))
+        XCTAssertTrue(LeoUXHarness.anyElement(in: app, identifier: "leo.toolbar.readingLayout").waitForExistence(timeout: 20))
         let restoredSnapshot = try waitForLocatorSnapshot(
             timeout: 35,
             failureMessage: "Expected Leo to relocate back to the saved locator after relaunch"

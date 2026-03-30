@@ -669,10 +669,11 @@ struct LibrarySidebar: View {
 
             Section("Library") {
                 Button(action: onImport) {
-                    Label("Import Book", systemImage: "plus.circle.fill")
-                        .foregroundStyle(.blue)
+                    Label("Import Book", systemImage: "plus")
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .padding(.vertical, 4)
 
                 ForEach(books) { book in
                     LibraryBookRow(
@@ -730,34 +731,30 @@ private struct LibraryBookRow: View {
     let metadataLine: String
     let isSelected: Bool
 
-    private var iconName: String {
-        book.format == .pdf ? "doc.fill" : "book.closed.fill"
-    }
-
     var body: some View {
-        HStack {
-            Image(systemName: iconName)
+        HStack(spacing: 10) {
+            Image(systemName: book.format == .epub ? "book.fill" : "doc.fill")
+                .font(.system(size: 20))
                 .foregroundStyle(.secondary)
-            VStack(alignment: .leading) {
+                .frame(width: 28)
+
+            VStack(alignment: .leading, spacing: 2) {
                 Text(book.title)
-                    .font(.body)
-                    .lineLimit(2)
+                    .font(.system(size: 13, weight: .medium))
+                    .lineLimit(1)
                 if !book.author.isEmpty {
                     Text(book.author)
-                        .font(.caption)
+                        .font(.system(size: 11))
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
                 }
                 Text(metadataLine)
-                    .font(.caption2)
+                    .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
-            }
-            Spacer(minLength: 8)
-            if isSelected {
-                Image(systemName: "bookmark.fill")
-                    .font(.caption)
-                    .foregroundStyle(Color.accentColor)
+                    .lineLimit(1)
             }
         }
+        .padding(.vertical, 4)
     }
 }
 

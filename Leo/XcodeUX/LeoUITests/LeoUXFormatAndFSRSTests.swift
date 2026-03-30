@@ -135,9 +135,8 @@ final class LeoUXPDFDualModeTests: XCTestCase, @unchecked Sendable {
         XCTAssertTrue(waitForEnabled(bookMode, timeout: 45), "Book View should become available for a text PDF")
         bookMode.click()
 
-        XCTAssertTrue(LeoUXHarness.anyElement(in: app, identifier: "leo.toolbar.theme").waitForExistence(timeout: 20))
+        XCTAssertTrue(LeoUXHarness.anyElement(in: app, identifier: "leo.toolbar.readingLayout").waitForExistence(timeout: 20))
         XCTAssertTrue(LeoUXHarness.anyElement(in: app, identifier: "leo.toolbar.toc").waitForExistence(timeout: 12))
-        XCTAssertTrue(LeoUXHarness.anyElement(in: app, identifier: "leo.toolbar.readingLayout").waitForExistence(timeout: 12))
         XCTAssertTrue(
             LeoUXHarness.anyElement(in: app, identifier: "leo.reader.dictionarySmoke").waitForExistence(timeout: 20),
             "Book View should keep the EPUB dictionary overlay"
@@ -194,7 +193,7 @@ final class LeoUXPDFDualModeTests: XCTestCase, @unchecked Sendable {
         let bookMode = LeoUXHarness.button(in: app, identifier: "leo.toolbar.pdfMode.book")
         XCTAssertTrue(waitForEnabled(bookMode, timeout: 45))
         bookMode.click()
-        XCTAssertTrue(LeoUXHarness.anyElement(in: app, identifier: "leo.toolbar.theme").waitForExistence(timeout: 20))
+        XCTAssertTrue(LeoUXHarness.anyElement(in: app, identifier: "leo.toolbar.readingLayout").waitForExistence(timeout: 20))
         let locatorBeforeRelaunch = try waitForLocatorSnapshot(
             timeout: 35,
             failureMessage: "Expected Book View to report a saved locator"
@@ -215,7 +214,7 @@ final class LeoUXPDFDualModeTests: XCTestCase, @unchecked Sendable {
         )
 
         XCTAssertTrue(app.windows.firstMatch.waitForExistence(timeout: 25))
-        XCTAssertTrue(LeoUXHarness.anyElement(in: app, identifier: "leo.toolbar.theme").waitForExistence(timeout: 20))
+        XCTAssertTrue(LeoUXHarness.anyElement(in: app, identifier: "leo.toolbar.readingLayout").waitForExistence(timeout: 20))
         let restoredLocator = try waitForLocatorSnapshot(
             timeout: 35,
             failureMessage: "Expected Book View to restore the saved locator"

@@ -204,6 +204,7 @@ struct TTSSettingsTab: View {
 }
 
 struct ReadingSettingsTab: View {
+    @AppStorage("leo.readingTheme") private var readingTheme: ReadingTheme = .light
     @AppStorage("leo.fontSize") private var fontSize = 18.0
     @AppStorage("leo.lineHeight") private var lineHeight = 1.8
     @AppStorage("leo.showPinyin") private var showPinyin = false
@@ -215,6 +216,7 @@ struct ReadingSettingsTab: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ReadingPreferencesForm(
+                theme: $readingTheme,
                 fontSize: $fontSize,
                 lineHeight: $lineHeight,
                 textDirection: $textDirection,
