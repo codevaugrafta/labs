@@ -31,6 +31,8 @@ struct ReaderView: View {
     @AppStorage("leo.pdf.explainerDismissed") private var pdfExplainerDismissed = false
     @State private var showReadingChromePopover = false
     @State private var showPDFLayoutPopover = false
+    @State private var chromeVisible = true
+    @State private var chromeHideTimer: Timer?
     @State private var pdfLayoutMode: PDFPageLayoutMode = .continuous
     @State private var pdfScrollAxis: PDFScrollAxis = .vertical
     @State private var pdfFitPolicy: PDFPageFitPolicy = .fitPage
@@ -199,109 +201,136 @@ struct ReaderView: View {
             }
         }
         .animation(.easeInOut(duration: 0.18), value: showSearchBar)
-        .toolbar {
-            // Theme picker — compact segmented, only for foliate reader
-            if usesFoliateReader {
-                ToolbarItem(placement: .automatic) {
-                    Picker("Theme", selection: $theme) {
-                        ForEach(ReadingTheme.allCases) { t in
-                            Text(t.label).tag(t)
+        .overlay(alignment: .top) {
+            if chromeVisible {
+                HStack(spacing: 16) {
+                    if usesFoliateReader {
+                        Picker("Theme", selection: $theme) {
+                            ForEach(ReadingTheme.allCases) { t in
+                                Text(t.label).tag(t)
+                            }
                         }
+                        .pickerStyle(.segmented)
+                        .controlSize(.small)
+                        .frame(width: 180)
+                        .accessibilityIdentifier("leo.toolbar.theme")
                     }
-                    .pickerStyle(.segmented)
-                    .controlSize(.small)
-                    .accessibilityIdentifier("leo.toolbar.theme")
-                }
-            }
 
-            // "..." overflow menu — TOC, font size, TTS, session timer, PDF layout
-            ToolbarItem(placement: .automatic) {
-                Menu {
+                    Spacer()
+
                     if usesFoliateReader {
                         Button {
                             coordinatorBridge.coordinator?.requestTOC()
-                            showTOCPanel = true
+                            showTOCPanel.toggle()
                         } label: {
-                            Label("Table of Contents", systemImage: "list.bullet.indent")
+                            Image(systemName: "list.bullet.indent")
                         }
+                        .buttonStyle(.plain)
                         .accessibilityIdentifier("leo.toolbar.toc")
+                        .popover(isPresented: $showTOCPanel, arrowEdge: .bottom) {
+                            TOCPanelView(items: tocItems) { href in
+                                showTOCPanel = false
+                                coordinatorBridge.coordinator?.goToTocItem(href)
+                            }
+                        }
 
                         Button {
                             showReadingChromePopover.toggle()
                         } label: {
-                            Label("Font & Layout", systemImage: "textformat.size")
+                            Image(systemName: "textformat.size")
                         }
+                        .buttonStyle(.plain)
                         .accessibilityIdentifier("leo.toolbar.readingLayout")
-
-                        Divider()
-
-                        if ttsEngine.isPlaying {
-                            Button { ttsEngine.pause() } label: {
-                                Label("Pause Reading Aloud", systemImage: "pause.fill")
-                            }
-                            Button { ttsEngine.stop() } label: {
-                                Label("Stop Reading Aloud", systemImage: "stop.fill")
-                            }
-                        } else {
-                            Button { Task { await playReadAloud() } } label: {
-                                Label("Read Aloud", systemImage: "speaker.wave.2")
-                            }
-                            .disabled(lastReadAloudSnippet.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .popover(isPresented: $showReadingChromePopover, arrowEdge: .bottom) {
+                            ReadingPreferencesForm(
+                                fontSize: $readingFontSize,
+                                lineHeight: $readingLineHeight,
+                                textDirection: $readingTextDirection,
+                                showPinyin: $readingShowPinyin,
+                                showHighlights: $readingShowHighlights
+                            )
+                            .padding()
+                            .frame(minWidth: 320, minHeight: 280)
                         }
-
-                        Divider()
-
-                        if sessionEngine.isActive {
-                            Button { sessionEngine.stopSession() } label: {
-                                Label("Stop Session (\(sessionEngine.formattedTime))", systemImage: "stop.circle")
-                            }
-                            .accessibilityIdentifier("leo.reader.sessionActive")
-                        } else {
-                            Button { sessionEngine.startSession(bookTitle: book.title) } label: {
-                                Label("Start Reading Session", systemImage: "play.circle")
-                            }
-                        }
-                    } else if book.format == .pdf {
-                        Button {
-                            showPDFLayoutPopover.toggle()
-                        } label: {
-                            Label("PDF Layout", systemImage: "rectangle.split.3x1")
-                        }
-                        .accessibilityIdentifier("leo.toolbar.pdfLayout")
                     }
-                } label: {
-                    Label("More", systemImage: "ellipsis.circle")
-                        .labelStyle(.iconOnly)
-                }
-                .accessibilityIdentifier("leo.toolbar.overflow")
-                .popover(isPresented: $showTOCPanel, arrowEdge: .bottom) {
-                    TOCPanelView(items: tocItems) { href in
-                        showTOCPanel = false
-                        coordinatorBridge.coordinator?.goToTocItem(href)
+
+                    Menu {
+                        if usesFoliateReader {
+                            if ttsEngine.isPlaying {
+                                Button { ttsEngine.pause() } label: {
+                                    Label("Pause Reading Aloud", systemImage: "pause.fill")
+                                }
+                                Button { ttsEngine.stop() } label: {
+                                    Label("Stop Reading Aloud", systemImage: "stop.fill")
+                                }
+                            } else {
+                                Button { Task { await playReadAloud() } } label: {
+                                    Label("Read Aloud", systemImage: "speaker.wave.2")
+                                }
+                                .disabled(lastReadAloudSnippet.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                            }
+
+                            Divider()
+
+                            if sessionEngine.isActive {
+                                Button { sessionEngine.stopSession() } label: {
+                                    Label("Stop Session (\(sessionEngine.formattedTime))", systemImage: "stop.circle")
+                                }
+                                .accessibilityIdentifier("leo.reader.sessionActive")
+                            } else {
+                                Button { sessionEngine.startSession(bookTitle: book.title) } label: {
+                                    Label("Start Reading Session", systemImage: "play.circle")
+                                }
+                            }
+                        } else if book.format == .pdf {
+                            Button {
+                                showPDFLayoutPopover.toggle()
+                            } label: {
+                                Label("PDF Layout", systemImage: "rectangle.split.3x1")
+                            }
+                            .accessibilityIdentifier("leo.toolbar.pdfLayout")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                    .menuStyle(.borderlessButton)
+                    .frame(width: 28)
+                    .accessibilityIdentifier("leo.toolbar.overflow")
+                    .popover(isPresented: $showPDFLayoutPopover, arrowEdge: .bottom) {
+                        PDFLayoutPreferencesForm(
+                            layoutMode: $pdfLayoutMode,
+                            scrollAxis: $pdfScrollAxis,
+                            fitPolicy: $pdfFitPolicy
+                        )
+                        .padding()
+                        .frame(minWidth: 360, minHeight: 240)
                     }
                 }
-                .popover(isPresented: $showReadingChromePopover, arrowEdge: .bottom) {
-                    ReadingPreferencesForm(
-                        fontSize: $readingFontSize,
-                        lineHeight: $readingLineHeight,
-                        textDirection: $readingTextDirection,
-                        showPinyin: $readingShowPinyin,
-                        showHighlights: $readingShowHighlights
-                    )
-                    .padding()
-                    .frame(minWidth: 320, minHeight: 280)
-                }
-                .popover(isPresented: $showPDFLayoutPopover, arrowEdge: .bottom) {
-                    PDFLayoutPreferencesForm(
-                        layoutMode: $pdfLayoutMode,
-                        scrollAxis: $pdfScrollAxis,
-                        fitPolicy: $pdfFitPolicy
-                    )
-                    .padding()
-                    .frame(minWidth: 360, minHeight: 240)
-                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 10)
+                .background(.ultraThinMaterial)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .shadow(color: .black.opacity(0.12), radius: 8, y: 4)
+                .padding(.top, 8)
+                .padding(.horizontal, 40)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .zIndex(15_000)
             }
         }
+        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: chromeVisible)
+        .onContinuousHover { phase in
+            switch phase {
+            case .active(let location):
+                if location.y < 60 {
+                    withAnimation { chromeVisible = true }
+                    resetChromeTimer()
+                }
+            case .ended:
+                resetChromeTimer()
+            }
+        }
+        .toolbarVisibility(.hidden, for: .windowToolbar)
+        .onAppear { resetChromeTimer() }
         .task(id: book.id) {
             // Single load pass — concurrent load() calls corrupt DictionaryEngine's `loaded` flag.
             await Task.detached(priority: .userInitiated) {
@@ -600,6 +629,15 @@ struct ReaderView: View {
 
     private func pdfPageSummary(for pageIndex: Int) -> String {
         "page=\(pageIndex + 1) fit=\(pdfFitPolicy.rawValue)"
+    }
+
+    private func resetChromeTimer() {
+        chromeHideTimer?.invalidate()
+        chromeHideTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { _ in
+            DispatchQueue.main.async {
+                withAnimation { self.chromeVisible = false }
+            }
+        }
     }
 
     private func saveBookState(context: String) {
