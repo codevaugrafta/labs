@@ -28,21 +28,56 @@ struct PDFParser: Sendable {
         let title = document.documentAttributes?[PDFDocumentAttribute.titleAttribute] as? String
             ?? fileURL.deletingPathExtension().lastPathComponent
 
-        var pages: [Page] = []
+        // Pass 1: extract text with PDFKit; collect scanned pages for OCR.
+        var results: [Int: String] = [:]
+        var scannedIndices: [Int] = []
+        var scannedImages: [(index: Int, cgImage: CGImage)] = []
+
         for i in 0..<document.pageCount {
             guard let page = document.page(at: i) else { continue }
-
-            // Try PDFKit text extraction first
             let pdfkitText = page.string ?? ""
-
-            // Check if text is usable (contains Chinese characters)
             if containsChinese(pdfkitText) && pdfkitText.count > 10 {
-                pages.append(Page(id: i, text: cleanupChineseOCR(pdfkitText)))
+                results[i] = cleanupChineseOCR(pdfkitText)
             } else {
-                // Fallback: OCR via Apple Vision
-                let ocrText = await ocrPage(page)
-                pages.append(Page(id: i, text: cleanupChineseOCR(ocrText)))
+                scannedIndices.append(i)
+                if let cgImage = renderPageToCGImage(page) {
+                    scannedImages.append((index: i, cgImage: cgImage))
+                }
             }
+        }
+
+        // Pass 2: OCR scanned pages.
+        // Primary: PaddleOCR-VL-1.5 (batch, one model load).
+        // Fallback: Apple Vision per-page.
+        if !scannedImages.isEmpty {
+            let paddleAvailable = await PaddleOCRClient.shared.isAvailable
+            if paddleAvailable {
+                if let paddleResults = try? await PaddleOCRClient.shared.recognizePages(scannedImages) {
+                    for (index, text) in paddleResults {
+                        results[index] = cleanupChineseOCR(text)
+                    }
+                    // Vision fallback for any pages PaddleOCR missed
+                    for i in scannedIndices where results[i] == nil || results[i]!.isEmpty {
+                        guard let page = document.page(at: i) else { continue }
+                        results[i] = cleanupChineseOCR(await ocrPage(page))
+                    }
+                } else {
+                    for i in scannedIndices {
+                        guard let page = document.page(at: i) else { continue }
+                        results[i] = cleanupChineseOCR(await ocrPage(page))
+                    }
+                }
+            } else {
+                for i in scannedIndices {
+                    guard let page = document.page(at: i) else { continue }
+                    results[i] = cleanupChineseOCR(await ocrPage(page))
+                }
+            }
+        }
+
+        let pages = (0..<document.pageCount).compactMap { i -> Page? in
+            guard let text = results[i] else { return nil }
+            return Page(id: i, text: text)
         }
 
         return PDFContent(

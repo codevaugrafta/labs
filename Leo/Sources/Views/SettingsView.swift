@@ -147,23 +147,37 @@ struct AnkiSettingsTab: View {
 }
 
 struct TTSSettingsTab: View {
-    @AppStorage("leo.ttsPreferSystem") private var preferSystem = true
+    @AppStorage("leo.ttsPreferSystem") private var preferSystem = false
+    @AppStorage("leo.ttsBackend") private var selectedBackend = LeoTTSBackend.qwen3.rawValue
     @AppStorage("leo.ttsVoice") private var voiceId = "Dennis"
     @AppStorage("leo.ttsModel") private var model = "inworld-tts-1.5-max"
     @AppStorage("leo.ttsSpeed") private var speed = 1.0
     @State private var inworldKey = ""
+    @State private var fishAudioKey = ""
 
     private let secretStore = LeoKeychainHelper()
 
     var body: some View {
         Form {
-            Section("Voice output") {
-                Toggle("Use macOS voices (free, on-device)", isOn: $preferSystem)
-                Text("When off, InWorld is used if an API key is set; otherwise Leo uses macOS speech automatically.")
+            Section("Voice quality") {
+                Picker("Backend", selection: $selectedBackend) {
+                    Text("Qwen3 (Local — best quality)").tag(LeoTTSBackend.qwen3.rawValue)
+                    Text("InWorld (API — word karaoke)").tag(LeoTTSBackend.inWorld.rawValue)
+                    Text("System (Offline — fastest)").tag(LeoTTSBackend.systemSpeech.rawValue)
+                }
+                .pickerStyle(.radioGroup)
+                Text("Qwen3 runs entirely on-device via Apple Silicon MLX. First use downloads ~4 GB to ~/.cache/huggingface.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            Section("InWorld TTS (optional)") {
+
+            Section("Playback") {
+                Slider(value: $speed, in: 0.5...2.0, step: 0.1) {
+                    Text("Speed: \(speed, specifier: "%.1f")x")
+                }
+            }
+
+            Section("InWorld TTS (API fallback)") {
                 SecureField("InWorld API Key (Basic auth)", text: $inworldKey)
                     .textFieldStyle(.roundedBorder)
                     .onChange(of: inworldKey) { _, newValue in
@@ -175,21 +189,30 @@ struct TTSSettingsTab: View {
                     Text("TTS-1.5 Max (quality)").tag("inworld-tts-1.5-max")
                     Text("TTS-1.5 Mini (speed)").tag("inworld-tts-1.5-mini")
                 }
-                Slider(value: $speed, in: 0.5...2.0, step: 0.1) {
-                    Text("Speed: \(speed, specifier: "%.1f")x")
-                }
-                Text("InWorld returns word-level timestamps for highlighting. macOS voices also support word-level highlighting via AVSpeechSynthesizer.")
+                Text("InWorld returns word-level timestamps for karaoke highlighting.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                Text("Leo stores the InWorld key in your macOS Keychain.")
+                Text("Leo stores all API keys in your macOS Keychain.")
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
+            }
+
+            Section("Fish Audio (API fallback)") {
+                SecureField("Fish Audio API Key", text: $fishAudioKey)
+                    .textFieldStyle(.roundedBorder)
+                    .onChange(of: fishAudioKey) { _, newValue in
+                        persistSecret(newValue, for: .fishAudio)
+                    }
+                Text("Fish Audio is used as a fallback when InWorld is not configured.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .padding()
         .accessibilityIdentifier("leo.settings.tab.voice")
         .task {
             inworldKey = secretStore.getSecret(for: .inWorld) ?? ""
+            fishAudioKey = secretStore.getSecret(for: .fishAudio) ?? ""
         }
     }
 

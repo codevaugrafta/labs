@@ -32,10 +32,12 @@ final class FloatingDictionaryPanel: NSPanel {
         collectionBehavior = [.fullScreenAuxiliary]
         isReleasedWhenClosed = false
 
-        // Appearance — solid with shadow, no transparency artifacts
+        // Appearance — clear window background so SwiftUI content provides the visual surface.
+        // On macOS 26 the SwiftUI content uses GlassEffectContainer; on older versions it uses
+        // ultraThinMaterial. Both need the NSPanel to be transparent underneath.
         titlebarAppearsTransparent = true
         titleVisibility = .hidden
-        backgroundColor = .controlBackgroundColor
+        backgroundColor = .clear
         isOpaque = false
         hasShadow = true
     }

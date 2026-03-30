@@ -128,6 +128,8 @@ function buildLeoReaderBodyCSS() {
                 letter-spacing: 0;
             }
             ::selection { background: rgba(59,130,246,0.2); }
+            ruby { ruby-position: ${vertical ? 'over' : 'under'}; ruby-align: center; }
+            rt { font-size: 0.6em; opacity: 0.75; font-family: ${LEO_FONT_STACK}; }
         `
 }
 

@@ -120,6 +120,35 @@ struct ReviewView: View {
                         .padding(.horizontal)
                 }
 
+                // Book sentence — context the word was encountered in
+                if let sentence = card.contextSentence, !sentence.isEmpty {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("From book:")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                        Text(highlightedSentence(sentence: sentence, word: card.word))
+                            .font(.system(size: 15))
+                            .multilineTextAlignment(.leading)
+                    }
+                    .frame(maxWidth: 420, alignment: .leading)
+                    .padding(.horizontal)
+                }
+
+                // Lemma example sentence (AI-generated)
+                if let example = card.lemmaExampleSentence, !example.isEmpty {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text("Example:")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                        Text(example)
+                            .font(.system(size: 15))
+                            .foregroundStyle(.primary)
+                            .multilineTextAlignment(.leading)
+                    }
+                    .frame(maxWidth: 420, alignment: .leading)
+                    .padding(.horizontal)
+                }
+
                 // Definitions
                 VStack(alignment: .leading, spacing: 4) {
                     ForEach(Array(entries.prefix(2).enumerated()), id: \.offset) { _, entry in

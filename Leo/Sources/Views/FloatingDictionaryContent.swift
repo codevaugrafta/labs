@@ -199,7 +199,10 @@ struct FloatingDictionaryContent: View {
                 }
 
                 if !data.alreadyInReview {
-                    ActionButton(label: "Review", icon: "arrow.clockwise", tint: .blue, action: onReview)
+                    ActionButton(label: "Review", icon: "arrow.clockwise", tint: .blue, action: {
+                        LeoHaptics.tick()
+                        onReview()
+                    })
                 } else {
                     Text("In review")
                         .font(.system(size: 11))
@@ -222,8 +225,26 @@ struct FloatingDictionaryContent: View {
         }
         .frame(width: 320)
         .fixedSize(horizontal: false, vertical: true)
-        .background(Color(nsColor: .controlBackgroundColor))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .background {
+            dictionaryPanelBackground
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 16))
+    }
+
+    // MARK: - Panel Background
+
+    /// Liquid Glass on macOS 26; ultraThinMaterial fallback on earlier versions.
+    @ViewBuilder
+    private var dictionaryPanelBackground: some View {
+        if #available(macOS 26.0, *) {
+            GlassEffectContainer {
+                Color.clear
+                    .glassEffect(.regular, in: .rect(cornerRadius: 16))
+            }
+        } else {
+            RoundedRectangle(cornerRadius: 16)
+                .fill(.ultraThinMaterial)
+        }
     }
 }
 

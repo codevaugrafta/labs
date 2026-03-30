@@ -3,13 +3,14 @@ import NaturalLanguage
 
 /// Elite Chinese text parser with multi-layer segmentation.
 ///
-/// Layer 1: Apple NLTagger (on-device ML word boundaries)
-/// Layer 2: Dictionary-corrected segmentation (CC-CEDICT longest-match refinement)
-/// Layer 3: POS tagging via NLTagger
+/// Layer 1a (preferred): Jieba Python daemon via JiebaClient (95-97% accuracy).
+///          Falls back to Layer 1b when unavailable.
+/// Layer 1b (fallback):  Apple NLTagger (on-device ML word boundaries, ~90-92% accuracy).
+/// Layer 2: Dictionary-corrected segmentation (CC-CEDICT longest-match refinement).
+/// Layer 3: POS tagging via NLTagger.
 ///
-/// The parser corrects NLTagger's mistakes by cross-referencing with CC-CEDICT.
-/// NLTagger sometimes over-segments (splits valid words) or under-segments
-/// (merges words that should be separate). Dictionary lookup resolves ambiguity.
+/// Jieba is transparent to callers — they always call `segmentWords` and get tokens back.
+/// Use `segmentWordsAsync` from async contexts to get Jieba accuracy when available.
 struct ChineseParser: Sendable {
 
     struct Token: Sendable, Identifiable {
@@ -39,15 +40,34 @@ struct ChineseParser: Sendable {
 
     // MARK: - Primary API
 
-    /// Dictionary-corrected word segmentation.
-    /// Uses NLTagger as baseline, then refines with CC-CEDICT longest-match.
+    /// Synchronous word segmentation.
+    /// Uses NLTagger as Layer 1, then refines with CC-CEDICT longest-match (Layer 2).
+    /// When Jieba accuracy is needed, call `segmentWordsAsync` from an async context.
     func segmentWords(_ text: String) -> [Token] {
         guard !text.isEmpty else { return [] }
-
-        // Step 1: Get NLTagger baseline segmentation
         let rawTokens = nlTaggerSegment(text)
+        return refinedSegmentation(rawTokens, in: text)
+    }
 
-        // Step 2: Refine Chinese word tokens with dictionary
+    /// Async word segmentation.
+    /// Uses Jieba (Layer 1a) when available, otherwise falls back to NLTagger (Layer 1b).
+    /// Layer 2 (CC-CEDICT longest-match) always runs on top of whichever Layer 1 was used.
+    func segmentWordsAsync(_ text: String) async -> [Token] {
+        guard !text.isEmpty else { return [] }
+
+        // Attempt Jieba first.
+        if await JiebaClient.shared.isAvailable {
+            do {
+                let jiebaTokens = try await JiebaClient.shared.segment(text)
+                let rawTokens = jiebaTokensToRaw(jiebaTokens, in: text)
+                return refinedSegmentation(rawTokens, in: text)
+            } catch {
+                NSLog("[ChineseParser] Jieba segment failed (\(error)) — falling back to NLTagger")
+            }
+        }
+
+        // Fallback: NLTagger.
+        let rawTokens = nlTaggerSegment(text)
         return refinedSegmentation(rawTokens, in: text)
     }
 
@@ -146,7 +166,53 @@ struct ChineseParser: Sendable {
         return resolveWordAtPosition(context: context, charIndex: charIndex)
     }
 
-    // MARK: - Layer 1: NLTagger
+    // MARK: - Layer 1a: Jieba token bridge
+
+    /// Converts a flat array of Jieba string tokens into the same `[Token]` shape
+    /// that `nlTaggerSegment` produces, so Layer 2 (dictionary refinement) can run unchanged.
+    ///
+    /// Jieba returns only the text strings; we reconstruct String.Index ranges by scanning
+    /// through `text` sequentially. POS is left as `.unknown` — NLTagger POS is not applied
+    /// on the Jieba path (accuracy improvement outweighs losing POS on Layer 1).
+    private func jiebaTokensToRaw(_ jiebaTokens: [String], in text: String) -> [Token] {
+        var tokens: [Token] = []
+        var searchStart = text.startIndex
+
+        for tokenText in jiebaTokens where !tokenText.isEmpty {
+            guard let range = text.range(of: tokenText, range: searchStart..<text.endIndex) else {
+                continue
+            }
+
+            let char = tokenText.unicodeScalars.first.map { Character($0) }
+            let type: TokenType
+            if tokenText.contains(where: \.isChineseCharacter) {
+                type = .word
+            } else if tokenText.allSatisfy({ $0.isPunctuation || $0.isChinesePunctuation }) {
+                type = .punctuation
+            } else if tokenText.allSatisfy(\.isWhitespace) || tokenText.allSatisfy(\.isNewline) {
+                type = .whitespace
+            } else if tokenText.allSatisfy(\.isNumber) {
+                type = .number
+            } else if char.map(\.isLetter) == true {
+                type = .word
+            } else {
+                type = .other
+            }
+
+            tokens.append(Token(
+                text: tokenText,
+                range: range,
+                type: type,
+                pos: .unknown,
+                isInDictionary: false
+            ))
+            searchStart = range.upperBound
+        }
+
+        return tokens
+    }
+
+    // MARK: - Layer 1b: NLTagger
 
     private func nlTaggerSegment(_ text: String) -> [Token] {
         let tagger = NLTagger(tagSchemes: [.tokenType, .lexicalClass])

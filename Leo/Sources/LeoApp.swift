@@ -30,6 +30,10 @@ struct LeoApp: App {
         NSLog("[Leo] App starting...")
         LeoSecretMigrator.migrateLegacyDefaults()
 
+        // Start Jieba daemon early so it is ready by the time the first book is opened.
+        // start() checks for python3+jieba availability and no-ops gracefully if absent.
+        Task { await JiebaClient.shared.start() }
+
         let runtime = LeoRuntime()
         self.runtime = runtime
         runtime.startEmbeddedReader()

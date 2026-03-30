@@ -19,6 +19,8 @@ final class FSRSCard {
     var contextSentence: String?
     /// AI-generated contextual gloss for the word in context. Nil when not yet computed or unavailable.
     var contextualDefinition: String?
+    /// AI-generated natural example sentence using the word in its most common meaning. Optional for migration safety.
+    var lemmaExampleSentence: String?
 
     init(word: String) {
         self.id = UUID()
@@ -34,6 +36,7 @@ final class FSRSCard {
         self.decay = nil
         self.contextSentence = nil
         self.contextualDefinition = nil
+        self.lemmaExampleSentence = nil
     }
 }
 

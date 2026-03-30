@@ -59,6 +59,61 @@ enum OpenRouterLookupService {
 
         return content.trimmingCharacters(in: .whitespacesAndNewlines)
     }
+
+    /// One natural Mandarin sentence (15–25 characters) using `word` in its most common meaning.
+    /// Returns Chinese characters only — no pinyin, no explanation, no English.
+    static func fetchLemmaExample(
+        word: String,
+        apiKey: String,
+        model: String
+    ) async throws -> String {
+        let trimmedWord = String(word.prefix(64))
+
+        let url = URL(string: "https://openrouter.ai/api/v1/chat/completions")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let system = """
+        Give one natural Mandarin Chinese sentence (15–25 characters) using this word in its most \
+        common meaning. Return Chinese characters only — no pinyin, no explanation, no English.
+        """
+        let user = "Word: \(trimmedWord)"
+
+        let body: [String: Any] = [
+            "model": model,
+            "messages": [
+                ["role": "system", "content": system],
+                ["role": "user", "content": user],
+            ],
+            "max_tokens": 80,
+            "temperature": 0.4,
+        ]
+
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else {
+            throw OpenRouterError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            let msg = String(data: data, encoding: .utf8) ?? "HTTP \(http.statusCode)"
+            throw OpenRouterError.http(http.statusCode, msg)
+        }
+
+        guard
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let choices = json["choices"] as? [[String: Any]],
+            let first = choices.first,
+            let message = first["message"] as? [String: Any],
+            let content = message["content"] as? String
+        else {
+            throw OpenRouterError.parseFailed
+        }
+
+        return content.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }
 
 enum OpenRouterError: LocalizedError {

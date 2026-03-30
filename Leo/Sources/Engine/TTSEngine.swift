@@ -1,7 +1,9 @@
 import Foundation
 import AVFoundation
+import Qwen3TTS
+import Qwen3ASR
 
-/// Read aloud: InWorld (optional key, word timestamps) or macOS `AVSpeechSynthesizer` (free).
+/// Read aloud: Qwen3 (local MLX), InWorld (API), or macOS `AVSpeechSynthesizer`.
 @MainActor
 final class TTSEngine: NSObject, ObservableObject {
     @Published var isPlaying = false
@@ -17,6 +19,10 @@ final class TTSEngine: NSObject, ObservableObject {
     private let speechSynthesizer = AVSpeechSynthesizer()
     private var systemUtterance: AVSpeechUtterance?
     private var activeBackend: LeoTTSBackend?
+
+    // Cached on first use — loading the MLX models takes several seconds.
+    private var qwen3TTSModel: Qwen3TTSModel?
+    private var qwen3Aligner: Qwen3ForcedAligner?
 
     struct WordTimestamp: Sendable {
         let word: String
@@ -42,7 +48,8 @@ final class TTSEngine: NSObject, ObservableObject {
         error = nil
         stopAllOutputs()
 
-        let hasKey = getAPIKey() != nil
+        let hasInWorldKey = getInWorldAPIKey() != nil
+        let hasFishKey = LeoKeychainHelper().getSecret(for: .fishAudio).map { !$0.isEmpty } ?? false
         // Default to true (system TTS) when the key has never been written — mirrors the
         // @AppStorage default in TTSSettingsTab and avoids UserDefaults.bool returning false
         // for a missing key.
@@ -52,10 +59,31 @@ final class TTSEngine: NSObject, ObservableObject {
         } else {
             preferSystem = true
         }
-        let backend = TTSProviderResolution.resolveBackend(hasInWorldKey: hasKey, preferSystem: preferSystem)
+        let rawSelection = UserDefaults.standard.string(forKey: "leo.ttsBackend")
+        let selectedBackend = rawSelection.flatMap { LeoTTSBackend(rawValue: $0) }
+
+        let backend = TTSProviderResolution.resolveBackend(
+            hasInWorldKey: hasInWorldKey,
+            hasFishAudioKey: hasFishKey,
+            preferSystem: preferSystem,
+            selectedBackend: selectedBackend
+        )
         activeBackend = backend
 
         switch backend {
+        case .qwen3:
+            do {
+                let result = try await callQwen3TTS(text: text)
+                wordTimestamps = result.timestamps
+                audioPlayer = try AVAudioPlayer(data: result.audioData)
+                audioPlayer?.delegate = self
+                audioPlayer?.prepareToPlay()
+                applyUserSpeedToPlayer()
+                isLoading = false
+            } catch {
+                self.error = error.localizedDescription
+                isLoading = false
+            }
         case .inWorld:
             do {
                 let result = try await callInWorldTTS(text: text)
@@ -69,6 +97,15 @@ final class TTSEngine: NSObject, ObservableObject {
                 self.error = error.localizedDescription
                 isLoading = false
             }
+        case .fishAudio:
+            // Fish Audio is not yet implemented; fall back to system speech gracefully.
+            wordTimestamps = []
+            let utterance = AVSpeechUtterance(string: text)
+            utterance.voice = Self.preferredChineseVoice() ?? AVSpeechSynthesisVoice(language: "zh-CN")
+            utterance.rate = Self.clampedSpeechRate(fromUserMultiplier: Self.userSpeedMultiplier())
+            systemUtterance = utterance
+            activeBackend = .systemSpeech
+            isLoading = false
         case .systemSpeech:
             wordTimestamps = []
             let utterance = AVSpeechUtterance(string: text)
@@ -82,12 +119,12 @@ final class TTSEngine: NSObject, ObservableObject {
     /// Start or resume playback.
     func play() {
         switch activeBackend {
-        case .inWorld:
+        case .qwen3, .inWorld:
             guard let player = audioPlayer else { return }
             player.play()
             isPlaying = true
             startHighlightTimer()
-        case .systemSpeech:
+        case .fishAudio, .systemSpeech:
             guard let utt = systemUtterance else { return }
             if speechSynthesizer.isPaused {
                 speechSynthesizer.continueSpeaking()
@@ -103,11 +140,11 @@ final class TTSEngine: NSObject, ObservableObject {
     /// Pause playback.
     func pause() {
         switch activeBackend {
-        case .inWorld:
+        case .qwen3, .inWorld:
             audioPlayer?.pause()
             isPlaying = false
             stopHighlightTimer()
-        case .systemSpeech:
+        case .fishAudio, .systemSpeech:
             if speechSynthesizer.isSpeaking {
                 speechSynthesizer.pauseSpeaking(at: .word)
             }
@@ -209,8 +246,84 @@ final class TTSEngine: NSObject, ObservableObject {
         return AVSpeechSynthesisVoice(language: "zh-CN")
     }
 
+    // MARK: - Qwen3 TTS (local MLX)
+
+    private func callQwen3TTS(text: String) async throws -> TTSResult {
+        // Load and cache both models — each takes a few seconds on first call.
+        let ttsModel: Qwen3TTSModel
+        if let cached = qwen3TTSModel {
+            ttsModel = cached
+        } else {
+            ttsModel = try await Qwen3TTSModel.fromPretrained(
+                modelId: "aufklarer/Qwen3-TTS-12Hz-1.7B-Base-MLX-4bit"
+            )
+            qwen3TTSModel = ttsModel
+        }
+
+        let aligner: Qwen3ForcedAligner
+        if let cached = qwen3Aligner {
+            aligner = cached
+        } else {
+            aligner = try await Qwen3ForcedAligner.fromPretrained()
+            qwen3Aligner = aligner
+        }
+
+        // MLX dispatches Metal GPU work internally — synthesis is safe to call from the main actor.
+        let samples: [Float] = ttsModel.synthesize(text: text, language: "chinese")
+
+        let sampleRate: Int = 24000
+        let aligned = aligner.align(audio: samples, text: text, sampleRate: sampleRate)
+
+        let timestamps = aligned.map { w in
+            WordTimestamp(word: w.text, startTime: TimeInterval(w.startTime), endTime: TimeInterval(w.endTime))
+        }
+
+        let audioData = Self.pcmFloatsToWAV(samples: samples, sampleRate: UInt32(sampleRate))
+        return TTSResult(audioData: audioData, timestamps: timestamps)
+    }
+
+    /// Encode raw 32-bit float PCM samples as a standard WAV file.
+    /// AVAudioPlayer can decode WAV/PCM natively — no intermediate format needed.
+    private static func pcmFloatsToWAV(samples: [Float], sampleRate: UInt32) -> Data {
+        let numChannels: UInt16 = 1
+        let bitsPerSample: UInt16 = 32
+        let bytesPerSample = Int(bitsPerSample) / 8
+        let dataSize = samples.count * bytesPerSample
+
+        var wav = Data()
+        // RIFF header
+        wav.append(contentsOf: Array("RIFF".utf8))
+        var chunkSize = UInt32(36 + dataSize).littleEndian
+        wav.append(contentsOf: withUnsafeBytes(of: &chunkSize) { Array($0) })
+        wav.append(contentsOf: Array("WAVE".utf8))
+        // fmt sub-chunk
+        wav.append(contentsOf: Array("fmt ".utf8))
+        var subChunk1Size = UInt32(16).littleEndian
+        wav.append(contentsOf: withUnsafeBytes(of: &subChunk1Size) { Array($0) })
+        var audioFormat = UInt16(3).littleEndian   // IEEE float
+        wav.append(contentsOf: withUnsafeBytes(of: &audioFormat) { Array($0) })
+        var channels = numChannels.littleEndian
+        wav.append(contentsOf: withUnsafeBytes(of: &channels) { Array($0) })
+        var rate = sampleRate.littleEndian
+        wav.append(contentsOf: withUnsafeBytes(of: &rate) { Array($0) })
+        var byteRate = (sampleRate * UInt32(numChannels) * UInt32(bitsPerSample) / 8).littleEndian
+        wav.append(contentsOf: withUnsafeBytes(of: &byteRate) { Array($0) })
+        var blockAlign = (numChannels * bitsPerSample / 8).littleEndian
+        wav.append(contentsOf: withUnsafeBytes(of: &blockAlign) { Array($0) })
+        var bps = bitsPerSample.littleEndian
+        wav.append(contentsOf: withUnsafeBytes(of: &bps) { Array($0) })
+        // data sub-chunk
+        wav.append(contentsOf: Array("data".utf8))
+        var dataChunkSize = UInt32(dataSize).littleEndian
+        wav.append(contentsOf: withUnsafeBytes(of: &dataChunkSize) { Array($0) })
+        wav.append(samples.withUnsafeBufferPointer { Data(buffer: $0) })
+        return wav
+    }
+
+    // MARK: - InWorld TTS (API)
+
     private func callInWorldTTS(text: String) async throws -> TTSResult {
-        guard let apiKey = getAPIKey() else {
+        guard let apiKey = getInWorldAPIKey() else {
             throw TTSError.noAPIKey
         }
 
@@ -305,7 +418,7 @@ final class TTSEngine: NSObject, ObservableObject {
         }
     }
 
-    private func getAPIKey() -> String? {
+    private func getInWorldAPIKey() -> String? {
         if let key = ProcessInfo.processInfo.environment["INWORLD_API_KEY"], !key.isEmpty {
             return key
         }

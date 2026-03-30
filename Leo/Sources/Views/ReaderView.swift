@@ -34,7 +34,6 @@ struct ReaderView: View {
     @AppStorage("leo.pdf.layoutMode") private var storedPDFLayoutMode = PDFPageLayoutMode.continuous.rawValue
     @AppStorage("leo.pdf.scrollAxis") private var storedPDFScrollAxis = PDFScrollAxis.vertical.rawValue
     @AppStorage("leo.pdf.fitPolicy") private var storedPDFFitPolicy = PDFPageFitPolicy.fitPage.rawValue
-    @AppStorage("leo.pdf.explainerDismissed") private var pdfExplainerDismissed = false
     @State private var showReadingPrefsFromToolbar = false
     @State private var showReadingPrefsFromFAB = false
     @State private var showPDFLayoutPopover = false
@@ -77,6 +76,23 @@ struct ReaderView: View {
                 fitPolicy: pdfFitPolicy,
                 onPageChanged: persistPDFPage
             )
+            .overlay(alignment: .bottom) {
+                if book.pdfPreparationStatus == .preparing {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("Preparing Book View…")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 8)
+                    .background(.regularMaterial, in: Capsule())
+                    .padding(.bottom, 20)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
+            }
+            .animation(.easeInOut(duration: 0.3), value: book.pdfPreparationStatus == .preparing)
         } else if let failureMessage = activeFailureMessage {
             ReaderFailureView(
                 message: failureMessage,
@@ -193,7 +209,7 @@ struct ReaderView: View {
                     .contentShape(Rectangle())
                     .onTapGesture {
                         searchFieldFocused = false
-                        withAnimation(.spring(response: 0.28, dampingFraction: 0.88)) {
+                        withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
                             showSearchBar = false
                         }
                         searchQuery = ""
@@ -432,10 +448,10 @@ struct ReaderView: View {
         .overlay(alignment: .bottom) { progressBar }
         .overlay(alignment: .topLeading) { uiTestProbes }
         .overlay(alignment: .top) { searchBarOverlay }
-        .animation(.spring(response: 0.28, dampingFraction: 0.88), value: showSearchBar)
+        .animation(.spring(duration: 0.35, bounce: 0.15), value: showSearchBar)
         .overlay(alignment: .top) { floatingToolbar }
         .overlay(alignment: .bottomTrailing) { floatingActionButtons }
-        .animation(.spring(response: 0.3, dampingFraction: 0.85), value: chromeVisible)
+        .animation(.easeInOut(duration: 0.2), value: chromeVisible)
         .toolbarVisibility(.hidden, for: .windowToolbar)
         .onContinuousHover { phase in
             switch phase {
@@ -519,7 +535,7 @@ struct ReaderView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .leoToggleSearch)) { _ in
             guard usesFoliateReader else { return }
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.88)) {
+            withAnimation(.spring(duration: 0.35, bounce: 0.15)) {
                 showSearchBar.toggle()
             }
             if showSearchBar {
@@ -711,14 +727,6 @@ struct ReaderView: View {
         }
     }
 
-    private func selectPDFMode(_ mode: PDFReadingMode) {
-        guard book.format == .pdf else { return }
-        if mode == .bookView && !bookViewReady {
-            return
-        }
-        activePDFMode = mode
-    }
-
     private func refreshUITestState() {
         if ProcessInfo.processInfo.environment["LEO_UI_TEST_SHOW_LOOKUP"] == "1", usesFoliateReader {
             let word = ProcessInfo.processInfo.environment["LEO_UI_TEST_LOOKUP_WORD"] ?? "你好"
@@ -827,79 +835,6 @@ private struct ReaderFailureView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(Color(nsColor: .textBackgroundColor))
         .accessibilityIdentifier("leo.reader.failure")
-    }
-}
-
-private struct PDFBookStatusBanner: View {
-    let status: PDFBookPreparationStatus
-    let activeMode: PDFReadingMode
-    let bookViewReady: Bool
-    let explanationDismissed: Bool
-    let failureMessage: String?
-    let onDismissExplanation: () -> Void
-    let onPrepare: () -> Void
-    let onRetry: () -> Void
-    let onOpenBookView: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if !explanationDismissed {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Original PDF keeps the real pages. Book View gives you Leo’s dictionary, TTS, and reading tools.")
-                        .font(.caption)
-                    Button("Got it", action: onDismissExplanation)
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                }
-                .accessibilityIdentifier("leo.reader.pdfExplainer")
-            }
-
-            switch status {
-            case .idle:
-                HStack(spacing: 8) {
-                    Text("Book View is available on this PDF once Leo prepares it.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Button("Prepare Book View", action: onPrepare)
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                        .accessibilityIdentifier("leo.reader.prepareBookView")
-                }
-
-            case .preparing:
-                EmptyView()
-
-            case .ready:
-                if bookViewReady && activeMode != .bookView {
-                    HStack(spacing: 8) {
-                        Button("Open Book View", action: onOpenBookView)
-                            .buttonStyle(.borderedProminent)
-                            .controlSize(.small)
-                            .accessibilityIdentifier("leo.reader.openBookView")
-                    }
-                }
-
-            case .failed:
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Book View unavailable")
-                        .font(.caption.weight(.semibold))
-                    if let failureMessage, !failureMessage.isEmpty {
-                        Text(failureMessage)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    Button("Retry Book View", action: onRetry)
-                        .buttonStyle(.bordered)
-                        .controlSize(.small)
-                        .accessibilityIdentifier("leo.reader.retryBookView")
-                }
-                .accessibilityIdentifier("leo.reader.bookViewUnavailable")
-            }
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.regularMaterial)
-        .accessibilityIdentifier("leo.reader.pdfModeBanner")
     }
 }
 

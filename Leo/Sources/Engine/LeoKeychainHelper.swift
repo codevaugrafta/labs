@@ -5,11 +5,13 @@ import os.log
 enum LeoSecretKey: CaseIterable, Hashable {
     case openRouter
     case inWorld
+    case fishAudio
 
     var defaultsKey: String {
         switch self {
         case .openRouter: "leo.openRouterApiKey"
         case .inWorld: "leo.inworldApiKey"
+        case .fishAudio: "leo.fishAudioApiKey"
         }
     }
 
@@ -17,6 +19,7 @@ enum LeoSecretKey: CaseIterable, Hashable {
         switch self {
         case .openRouter: "api-key-openrouter"
         case .inWorld: "api-key-inworld"
+        case .fishAudio: "api-key-fishaudio"
         }
     }
 }

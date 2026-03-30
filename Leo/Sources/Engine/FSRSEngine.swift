@@ -105,12 +105,37 @@ final class FSRSEngine {
     }
 
     /// Create a new card for a word, optionally storing the sentence context and AI-generated definition.
+    /// Fires a background Task to fetch a lemma example sentence via OpenRouter (fire-and-forget).
     func createCard(for word: String, context: String? = nil, definition: String? = nil) -> FSRSCard {
         let card = FSRSCard(word: word)
         card.contextSentence = context
         card.contextualDefinition = definition
         modelContext.insert(card)
         trySave()
+
+        // Fire-and-forget: fetch a natural example sentence for the lemma.
+        let apiKey = LeoKeychainHelper().getSecret(for: .openRouter) ?? ""
+        let model = UserDefaults.standard.string(forKey: "leo.lookupModel") ?? "qwen/qwen-2.5-72b-instruct"
+        guard !apiKey.isEmpty else { return card }
+
+        let capturedWord = word
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let sentence = try await OpenRouterLookupService.fetchLemmaExample(
+                    word: capturedWord,
+                    apiKey: apiKey,
+                    model: model
+                )
+                await MainActor.run {
+                    card.lemmaExampleSentence = sentence
+                    self.trySave()
+                }
+            } catch {
+                NSLog("[Leo FSRSEngine] fetchLemmaExample failed for '\(capturedWord)': \(error.localizedDescription)")
+            }
+        }
+
         return card
     }
 
