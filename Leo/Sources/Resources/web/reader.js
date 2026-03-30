@@ -73,6 +73,7 @@ window._leoLastPrefs = {
     textDirection: 'horizontal',
     showPinyin: false,
     showHighlights: true,
+    pageStyle: 'clean',
 }
 window.__leoShowHighlights = true
 window.__leoShowPinyin = false
@@ -106,8 +107,9 @@ function buildLeoReaderBodyCSS() {
                 text-rendering: optimizeLegibility;
                 -webkit-font-smoothing: antialiased;
                 transition: background-color 0.3s ease, color 0.3s ease;
-                box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.08);
+                ${p.pageStyle === 'page' ? 'box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.08);' : ''}
             }
+            ${p.pageStyle === 'page' ? `
             body::after {
                 content: '';
                 position: fixed;
@@ -115,7 +117,7 @@ function buildLeoReaderBodyCSS() {
                 background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='4' height='4' fill='%23000' opacity='0.015'/%3E%3C/svg%3E");
                 pointer-events: none;
                 z-index: 9999;
-            }
+            }` : ''}
             p { margin-bottom: 1.2em; }
             h1, h2, h3 { text-indent: 0; text-align: center; margin-top: 2em; font-family: ${LEO_FONT_STACK}; }
             :lang(en), :lang(fr), :lang(de), :lang(es) {
@@ -152,6 +154,9 @@ window.applyReadingPreferences = function (p) {
     if (typeof p.showHighlights === 'boolean') {
         window._leoLastPrefs.showHighlights = p.showHighlights
         window.__leoShowHighlights = p.showHighlights
+    }
+    if (p.pageStyle === 'clean' || p.pageStyle === 'page') {
+        window._leoLastPrefs.pageStyle = p.pageStyle
     }
     pushLeoReaderStyles()
 }
@@ -254,8 +259,14 @@ window.setTheme = function(themeP) {
     window._leoLastTheme = { bg, fg }
     document.documentElement.style.setProperty('--bg', bg)
     document.documentElement.style.setProperty('--fg', fg)
+    // Apply bg to EVERY element that might show through — html, body, and any container
+    document.documentElement.style.background = bg
+    document.documentElement.style.transition = 'background-color 0.3s ease'
     document.body.style.transition = 'background-color 0.3s ease, color 0.3s ease'
     document.body.style.background = bg
+    // Also apply to any foliate-js container elements
+    const containers = document.querySelectorAll('foliate-view, .foliate-view, #reader, .reader-container')
+    containers.forEach(el => { el.style.background = bg })
 
     // Derive accent color per theme: sepia = warm amber, dark = soft blue, light = system blue.
     // Apple Books–matched bg values: dark=#121212, sepia=#F8F1E3, light=#FBFBFB

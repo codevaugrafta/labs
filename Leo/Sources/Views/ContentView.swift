@@ -23,18 +23,37 @@ struct ContentView: View {
     @State private var bookImportError: String?
     @State private var pdfPreparationTasks: [UUID: Task<Void, Never>] = [:]
 
+    // MARK: - View Builder Sub-expressions
+
+    @ViewBuilder
+    private var sidebarContent: some View {
+        LibrarySidebar(
+            books: books,
+            selectedBook: $selectedBook,
+            onImport: presentBookImportPanel,
+            onReview: { showReview = true },
+            onVocabulary: { showVocabulary = true },
+            onStats: { showStats = true },
+            onDelete: deleteBook,
+            onPreparePDFBookView: { preparePDFBookViewIfNeeded($0, userInitiated: true) }
+        )
+        // Liquid Glass styling on macOS 26+; fall back to ultra-thin material.
+        .background {
+            if #available(macOS 26, *) {
+                // glassEffect is the macOS 26 Liquid Glass API
+                Color.clear.glassEffect(.regular)
+            } else {
+                Color(nsColor: .windowBackgroundColor).opacity(0.85)
+                    .background(.ultraThinMaterial)
+            }
+        }
+    }
+
+    // MARK: - Body
+
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            LibrarySidebar(
-                books: books,
-                selectedBook: $selectedBook,
-                onImport: presentBookImportPanel,
-                onReview: { showReview = true },
-                onVocabulary: { showVocabulary = true },
-                onStats: { showStats = true },
-                onDelete: deleteBook,
-                onPreparePDFBookView: { preparePDFBookViewIfNeeded($0, userInitiated: true) }
-            )
+            sidebarContent
         } detail: {
             if let book = selectedBook {
                 ReaderView(
@@ -42,14 +61,42 @@ struct ContentView: View {
                     onPreparePDFBookView: { preparePDFBookViewIfNeeded($0) },
                     onRetryPDFBookView: { preparePDFBookViewIfNeeded($0, forceRetry: true, userInitiated: true) }
                 )
-                    .id(book.id) // Force fresh view when switching books
+                .id(book.id) // Force fresh view when switching books
+                .ignoresSafeArea(.all, edges: .top)
             } else {
                 EmptyLibraryView(onImport: presentBookImportPanel)
             }
         }
         .navigationSplitViewStyle(.prominentDetail)
+        .toolbarVisibility(.hidden, for: .windowToolbar)
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .accessibilityIdentifier("leo.root.split")
+        // ⌃⌘S: toggle library sidebar overlay
+        .onKeyPress(.init("s"), phases: .down) { press in
+            guard press.modifiers.contains(.control) && press.modifiers.contains(.command) else {
+                return .ignored
+            }
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+            }
+            return .handled
+        }
+        // Hover on left 20px edge reveals the sidebar
+        .onContinuousHover { phase in
+            if case .active(let location) = phase, location.x < 20 {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    columnVisibility = .all
+                }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .leoShowLibrary)) { _ in
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .leoShowVocabulary)) { _ in
+            showVocabulary = true
+        }
         .fileImporter(
             isPresented: $showAnkiImporter,
             allowedContentTypes: [UTType(filenameExtension: "apkg") ?? .data],
@@ -104,36 +151,11 @@ struct ContentView: View {
         .onChange(of: selectedBook?.id) { _, _ in
             preparePDFBookViewIfNeeded(selectedBook)
         }
-        .alert("Anki import", isPresented: Binding(
-            get: { ankiImportMessage != nil },
-            set: { if !$0 { ankiImportMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) { ankiImportMessage = nil }
-        } message: {
-            if let ankiImportMessage {
-                Text(ankiImportMessage)
-            }
-        }
-        .alert("Convert PDF", isPresented: Binding(
-            get: { pdfConvertError != nil },
-            set: { if !$0 { pdfConvertError = nil } }
-        )) {
-            Button("OK", role: .cancel) { pdfConvertError = nil }
-        } message: {
-            if let pdfConvertError {
-                Text(pdfConvertError)
-            }
-        }
-        .alert("Import Book", isPresented: Binding(
-            get: { bookImportError != nil },
-            set: { if !$0 { bookImportError = nil } }
-        )) {
-            Button("OK", role: .cancel) { bookImportError = nil }
-        } message: {
-            if let bookImportError {
-                Text(bookImportError)
-            }
-        }
+        .modifier(ContentViewAlerts(
+            ankiImportMessage: $ankiImportMessage,
+            pdfConvertError: $pdfConvertError,
+            bookImportError: $bookImportError
+        ))
     }
 
     private func handleAnkiImport(_ result: Result<[URL], Error>) {
@@ -540,6 +562,46 @@ struct ContentView: View {
         // Trim
         title = title.trimmingCharacters(in: .whitespaces)
         return title.isEmpty ? filename : title
+    }
+}
+
+// MARK: - Alerts ViewModifier
+
+/// Extracted so the type checker doesn't time out on the long ContentView modifier chain.
+private struct ContentViewAlerts: ViewModifier {
+    @Binding var ankiImportMessage: String?
+    @Binding var pdfConvertError: String?
+    @Binding var bookImportError: String?
+
+    func body(content: Content) -> some View {
+        let ankiBinding = Binding<Bool>(
+            get: { ankiImportMessage != nil },
+            set: { if !$0 { ankiImportMessage = nil } }
+        )
+        let pdfBinding = Binding<Bool>(
+            get: { pdfConvertError != nil },
+            set: { if !$0 { pdfConvertError = nil } }
+        )
+        let importBinding = Binding<Bool>(
+            get: { bookImportError != nil },
+            set: { if !$0 { bookImportError = nil } }
+        )
+        content
+            .alert("Anki import", isPresented: ankiBinding) {
+                Button("OK", role: .cancel) { ankiImportMessage = nil }
+            } message: {
+                if let msg = ankiImportMessage { Text(msg) }
+            }
+            .alert("Convert PDF", isPresented: pdfBinding) {
+                Button("OK", role: .cancel) { pdfConvertError = nil }
+            } message: {
+                if let msg = pdfConvertError { Text(msg) }
+            }
+            .alert("Import Book", isPresented: importBinding) {
+                Button("OK", role: .cancel) { bookImportError = nil }
+            } message: {
+                if let msg = bookImportError { Text(msg) }
+            }
     }
 }
 

@@ -25,6 +25,7 @@ struct ReaderView: View {
     @AppStorage("leo.showPinyin") private var readingShowPinyin = false
     @AppStorage("leo.showHighlights") private var readingShowHighlights = true
     @AppStorage("leo.textDirection") private var readingTextDirection = "horizontal"
+    @AppStorage("leo.pageStyle") private var readingPageStyle = "clean"
     @AppStorage("leo.pdf.layoutMode") private var storedPDFLayoutMode = PDFPageLayoutMode.continuous.rawValue
     @AppStorage("leo.pdf.scrollAxis") private var storedPDFScrollAxis = PDFScrollAxis.vertical.rawValue
     @AppStorage("leo.pdf.fitPolicy") private var storedPDFFitPolicy = PDFPageFitPolicy.fitPage.rawValue
@@ -57,267 +58,320 @@ struct ReaderView: View {
     @State private var uiTestRelocationCount = 0
     @State private var uiTestPDFPageSummary: String?
 
-    var body: some View {
-        ZStack(alignment: .top) {
-            Group {
-                if showsOriginalPDF {
-                    PDFReaderView(
-                        filePath: book.filePath,
-                        initialPageIndex: book.safePdfLastPageIndex,
-                        layoutMode: pdfLayoutMode,
-                        scrollAxis: pdfScrollAxis,
-                        fitPolicy: pdfFitPolicy,
-                        onPageChanged: persistPDFPage
-                    )
-                } else if let failureMessage = activeFailureMessage {
-                    ReaderFailureView(
-                        message: failureMessage,
-                        onRetry: retryReader
-                    )
-                } else if let foliateFilePath = currentFoliateFilePath {
-                    FoliateReaderView(
-                        bookFilePath: foliateFilePath,
-                        bookId: book.id.uuidString,
-                        theme: theme,
-                        initialLocator: book.locator,
-                        readingChrome: LeoReadingChromePreferences(
-                            fontSize: readingFontSize,
-                            lineHeight: readingLineHeight,
-                            textDirection: readingTextDirection,
-                            showPinyin: readingShowPinyin,
-                            showHighlights: readingShowHighlights
-                        ),
-                        onRelocate: persistLocation,
-                        onLoadSuccess: handleReaderLoadSuccess,
-                        onLoadError: handleReaderLoadError,
-                        onWordTapped: handleWordTap,
-                        onPopupAction: handlePopupAction,
-                        familiarityForWord: { word in
-                            familiarityTracker?.state(for: word) ?? .unknown
-                        },
-                        hasReviewCardForWord: { word in
-                            let fsrs = FSRSEngine(modelContext: modelContext)
-                            return fsrs.card(for: word) != nil
-                        },
-                        onTOCLoaded: { items in
-                            tocItems = items
-                        },
-                        onCoordinatorReady: { coord in
-                            coordinatorBridge.coordinator = coord
-                        }
-                    )
-                } else {
-                    ReaderFailureView(
-                        message: book.pdfPreparationError ?? "Leo couldn’t open Book View for this PDF yet.",
-                        onRetry: { onRetryPDFBookView(book) }
-                    )
+    // MARK: - View Builder Sub-expressions
+
+    @ViewBuilder
+    private var readerContent: some View {
+        if showsOriginalPDF {
+            PDFReaderView(
+                filePath: book.filePath,
+                initialPageIndex: book.safePdfLastPageIndex,
+                layoutMode: pdfLayoutMode,
+                scrollAxis: pdfScrollAxis,
+                fitPolicy: pdfFitPolicy,
+                onPageChanged: persistPDFPage
+            )
+        } else if let failureMessage = activeFailureMessage {
+            ReaderFailureView(
+                message: failureMessage,
+                onRetry: retryReader
+            )
+        } else if let foliateFilePath = currentFoliateFilePath {
+            FoliateReaderView(
+                bookFilePath: foliateFilePath,
+                bookId: book.id.uuidString,
+                theme: theme,
+                initialLocator: book.locator,
+                readingChrome: LeoReadingChromePreferences(
+                    fontSize: readingFontSize,
+                    lineHeight: readingLineHeight,
+                    textDirection: readingTextDirection,
+                    showPinyin: readingShowPinyin,
+                    showHighlights: readingShowHighlights,
+                    pageStyle: readingPageStyle
+                ),
+                onRelocate: persistLocation,
+                onLoadSuccess: handleReaderLoadSuccess,
+                onLoadError: handleReaderLoadError,
+                onWordTapped: handleWordTap,
+                onPopupAction: handlePopupAction,
+                familiarityForWord: { word in
+                    familiarityTracker?.state(for: word) ?? .unknown
+                },
+                hasReviewCardForWord: { word in
+                    let fsrs = FSRSEngine(modelContext: modelContext)
+                    return fsrs.card(for: word) != nil
+                },
+                onTOCLoaded: { items in
+                    tocItems = items
+                },
+                onCoordinatorReady: { coord in
+                    coordinatorBridge.coordinator = coord
                 }
+            )
+        } else {
+            ReaderFailureView(
+                message: book.pdfPreparationError ?? "Leo couldn’t open Book View for this PDF yet.",
+                onRetry: { onRetryPDFBookView(book) }
+            )
+        }
+    }
+
+    @ViewBuilder
+    private var progressBar: some View {
+        if usesFoliateReader && readingFraction > 0 {
+            GeometryReader { geo in
+                Rectangle()
+                    .fill(Color.accentColor.opacity(0.4))
+                    .frame(width: geo.size.width * readingFraction, height: 2)
+                    .animation(.easeOut(duration: 0.3), value: readingFraction)
+            }
+            .frame(height: 2)
+            .allowsHitTesting(false)
+        }
+    }
+
+    @ViewBuilder
+    private var uiTestProbes: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            if let summary = uiTestDictionarySummary, usesFoliateReader {
+                Text(summary)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .padding(6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityIdentifier("leo.reader.dictionarySmoke")
+                    .accessibilityLabel(summary)
+                    .accessibilityValue(summary)
             }
 
-        }
-        .overlay(alignment: .bottom) {
-            // Thin 2px reading progress bar at the very bottom, only for foliate reader
-            if usesFoliateReader && readingFraction > 0 {
-                GeometryReader { geo in
-                    Rectangle()
-                        .fill(Color.accentColor.opacity(0.4))
-                        .frame(width: geo.size.width * readingFraction, height: 2)
-                        .animation(.easeOut(duration: 0.3), value: readingFraction)
-                }
-                .frame(height: 2)
-                .allowsHitTesting(false)
+            if let locatorSummary = uiTestLocatorSummary, usesFoliateReader {
+                Text(locatorSummary)
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .padding(6)
+                    .id(locatorSummary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityIdentifier("leo.reader.locatorProbe")
+                    .accessibilityLabel(locatorSummary)
+                    .accessibilityValue(locatorSummary)
+            }
+
+            if let pdfPageSummary = uiTestPDFPageSummary, showsOriginalPDF {
+                Text(pdfPageSummary)
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .padding(6)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityIdentifier("leo.reader.pdfPageProbe")
+                    .accessibilityLabel(pdfPageSummary)
+                    .accessibilityValue(pdfPageSummary)
             }
         }
-        .overlay(alignment: .topLeading) {
-            VStack(alignment: .leading, spacing: 6) {
-                if let summary = uiTestDictionarySummary, usesFoliateReader {
-                    Text(summary)
-                        .font(.caption2)
-                        .foregroundStyle(.secondary)
-                        .padding(6)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityIdentifier("leo.reader.dictionarySmoke")
-                        .accessibilityLabel(summary)
-                        .accessibilityValue(summary)
-                }
+        .padding(.top, 4)
+        .zIndex(10_000)
+    }
 
-                if let locatorSummary = uiTestLocatorSummary, usesFoliateReader {
-                    Text(locatorSummary)
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .padding(6)
-                        .id(locatorSummary)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityIdentifier("leo.reader.locatorProbe")
-                        .accessibilityLabel(locatorSummary)
-                        .accessibilityValue(locatorSummary)
-                }
-
-                if let pdfPageSummary = uiTestPDFPageSummary, showsOriginalPDF {
-                    Text(pdfPageSummary)
-                        .font(.system(.caption2, design: .monospaced))
-                        .foregroundStyle(.secondary)
-                        .padding(6)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 8))
-                        .accessibilityElement(children: .ignore)
-                        .accessibilityIdentifier("leo.reader.pdfPageProbe")
-                        .accessibilityLabel(pdfPageSummary)
-                        .accessibilityValue(pdfPageSummary)
-                }
-            }
-            .padding(.top, 4)
-            .zIndex(10_000)
-        }
-        .overlay(alignment: .top) {
-            if showSearchBar && usesFoliateReader {
-                SearchBarView(
-                    query: $searchQuery,
-                    isFocused: $searchFieldFocused,
-                    onSubmit: {
-                        let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if q.isEmpty {
-                            coordinatorBridge.coordinator?.clearBookSearch()
-                        } else {
-                            coordinatorBridge.coordinator?.searchInBook(q)
-                        }
-                    },
-                    onClear: {
-                        searchQuery = ""
+    @ViewBuilder
+    private var searchBarOverlay: some View {
+        if showSearchBar && usesFoliateReader {
+            SearchBarView(
+                query: $searchQuery,
+                isFocused: $searchFieldFocused,
+                onSubmit: {
+                    let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if q.isEmpty {
                         coordinatorBridge.coordinator?.clearBookSearch()
-                    },
-                    onDismiss: {
-                        showSearchBar = false
-                        searchQuery = ""
-                        coordinatorBridge.coordinator?.clearBookSearch()
+                    } else {
+                        coordinatorBridge.coordinator?.searchInBook(q)
                     }
-                )
-                .transition(.move(edge: .top).combined(with: .opacity))
-                .zIndex(20_000)
-            }
+                },
+                onClear: {
+                    searchQuery = ""
+                    coordinatorBridge.coordinator?.clearBookSearch()
+                },
+                onDismiss: {
+                    showSearchBar = false
+                    searchQuery = ""
+                    coordinatorBridge.coordinator?.clearBookSearch()
+                }
+            )
+            .transition(.move(edge: .top).combined(with: .opacity))
+            .zIndex(20_000)
         }
-        .animation(.easeInOut(duration: 0.18), value: showSearchBar)
-        .overlay(alignment: .top) {
-            if chromeVisible {
-                HStack(spacing: 16) {
-                    if usesFoliateReader {
-                        Picker("Theme", selection: $theme) {
-                            ForEach(ReadingTheme.allCases) { t in
-                                Text(t.label).tag(t)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-                        .controlSize(.small)
-                        .frame(width: 180)
-                        .accessibilityIdentifier("leo.toolbar.theme")
-                    }
+    }
 
-                    Spacer()
-
-                    if usesFoliateReader {
-                        Button {
-                            coordinatorBridge.coordinator?.requestTOC()
-                            showTOCPanel.toggle()
-                        } label: {
-                            Image(systemName: "list.bullet.indent")
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("leo.toolbar.toc")
-                        .popover(isPresented: $showTOCPanel, arrowEdge: .bottom) {
-                            TOCPanelView(items: tocItems) { href in
-                                showTOCPanel = false
-                                coordinatorBridge.coordinator?.goToTocItem(href)
-                            }
-                        }
-
-                        Button {
-                            showReadingChromePopover.toggle()
-                        } label: {
-                            Image(systemName: "textformat.size")
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("leo.toolbar.readingLayout")
-                        .popover(isPresented: $showReadingChromePopover, arrowEdge: .bottom) {
-                            ReadingPreferencesForm(
-                                fontSize: $readingFontSize,
-                                lineHeight: $readingLineHeight,
-                                textDirection: $readingTextDirection,
-                                showPinyin: $readingShowPinyin,
-                                showHighlights: $readingShowHighlights
-                            )
-                            .padding()
-                            .frame(minWidth: 320, minHeight: 280)
+    @ViewBuilder
+    private var floatingToolbar: some View {
+        if chromeVisible {
+            HStack(spacing: 20) {
+                if usesFoliateReader {
+                    Picker("", selection: $theme) {
+                        ForEach(ReadingTheme.allCases) { t in
+                            Text(t.label).tag(t)
                         }
                     }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .frame(width: 160)
+                    .accessibilityIdentifier("leo.toolbar.theme")
+                }
 
-                    Menu {
-                        if usesFoliateReader {
-                            if ttsEngine.isPlaying {
-                                Button { ttsEngine.pause() } label: {
-                                    Label("Pause Reading Aloud", systemImage: "pause.fill")
-                                }
-                                Button { ttsEngine.stop() } label: {
-                                    Label("Stop Reading Aloud", systemImage: "stop.fill")
-                                }
-                            } else {
-                                Button { Task { await playReadAloud() } } label: {
-                                    Label("Read Aloud", systemImage: "speaker.wave.2")
-                                }
-                                .disabled(lastReadAloudSnippet.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                            }
+                Spacer()
 
-                            Divider()
-
-                            if sessionEngine.isActive {
-                                Button { sessionEngine.stopSession() } label: {
-                                    Label("Stop Session (\(sessionEngine.formattedTime))", systemImage: "stop.circle")
-                                }
-                                .accessibilityIdentifier("leo.reader.sessionActive")
-                            } else {
-                                Button { sessionEngine.startSession(bookTitle: book.title) } label: {
-                                    Label("Start Reading Session", systemImage: "play.circle")
-                                }
-                            }
-                        } else if book.format == .pdf {
-                            Button {
-                                showPDFLayoutPopover.toggle()
-                            } label: {
-                                Label("PDF Layout", systemImage: "rectangle.split.3x1")
-                            }
-                            .accessibilityIdentifier("leo.toolbar.pdfLayout")
-                        }
+                if usesFoliateReader {
+                    Button {
+                        coordinatorBridge.coordinator?.requestTOC()
+                        showTOCPanel.toggle()
                     } label: {
-                        Image(systemName: "ellipsis.circle")
+                        Image(systemName: "list.bullet")
+                            .font(.system(size: 14))
                     }
-                    .menuStyle(.borderlessButton)
-                    .frame(width: 28)
-                    .accessibilityIdentifier("leo.toolbar.overflow")
-                    .popover(isPresented: $showPDFLayoutPopover, arrowEdge: .bottom) {
-                        PDFLayoutPreferencesForm(
-                            layoutMode: $pdfLayoutMode,
-                            scrollAxis: $pdfScrollAxis,
-                            fitPolicy: $pdfFitPolicy
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("leo.toolbar.toc")
+                    .popover(isPresented: $showTOCPanel, arrowEdge: .bottom) {
+                        TOCPanelView(items: tocItems) { href in
+                            showTOCPanel = false
+                            coordinatorBridge.coordinator?.goToTocItem(href)
+                        }
+                    }
+
+                    Button {
+                        showReadingChromePopover.toggle()
+                    } label: {
+                        Image(systemName: "textformat.size")
+                            .font(.system(size: 14))
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("leo.toolbar.readingLayout")
+                    .popover(isPresented: $showReadingChromePopover, arrowEdge: .bottom) {
+                        ReadingPreferencesForm(
+                            fontSize: $readingFontSize,
+                            lineHeight: $readingLineHeight,
+                            textDirection: $readingTextDirection,
+                            showPinyin: $readingShowPinyin,
+                            showHighlights: $readingShowHighlights,
+                            pageStyle: $readingPageStyle
                         )
                         .padding()
-                        .frame(minWidth: 360, minHeight: 240)
+                        .frame(minWidth: 320, minHeight: 280)
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 10)
-                .background(.ultraThinMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
-                .shadow(color: .black.opacity(0.12), radius: 8, y: 4)
-                .padding(.top, 8)
-                .padding(.horizontal, 40)
-                .transition(.move(edge: .top).combined(with: .opacity))
-                .zIndex(15_000)
+
+                overflowMenu
             }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+            .shadow(color: .black.opacity(0.08), radius: 12, y: 4)
+            .padding(.top, 6)
+            .padding(.horizontal, 60)
+            .transition(.move(edge: .top).combined(with: .opacity))
+            .zIndex(15_000)
         }
+    }
+
+    @ViewBuilder
+    private var overflowMenu: some View {
+        Menu {
+            if usesFoliateReader {
+                if ttsEngine.isPlaying {
+                    Button { ttsEngine.pause() } label: {
+                        Label("Pause Reading Aloud", systemImage: "pause.fill")
+                    }
+                    Button { ttsEngine.stop() } label: {
+                        Label("Stop Reading Aloud", systemImage: "stop.fill")
+                    }
+                } else {
+                    Button { Task { await playReadAloud() } } label: {
+                        Label("Read Aloud", systemImage: "speaker.wave.2")
+                    }
+                    .disabled(lastReadAloudSnippet.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+
+                Divider()
+
+                if sessionEngine.isActive {
+                    Button { sessionEngine.stopSession() } label: {
+                        Label("Stop Session (\(sessionEngine.formattedTime))", systemImage: "stop.circle")
+                    }
+                    .accessibilityIdentifier("leo.reader.sessionActive")
+                } else {
+                    Button { sessionEngine.startSession(bookTitle: book.title) } label: {
+                        Label("Start Reading Session", systemImage: "play.circle")
+                    }
+                }
+            } else if book.format == .pdf {
+                Button {
+                    showPDFLayoutPopover.toggle()
+                } label: {
+                    Label("PDF Layout", systemImage: "rectangle.split.3x1")
+                }
+                .accessibilityIdentifier("leo.toolbar.pdfLayout")
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 14))
+        }
+        .menuStyle(.borderlessButton)
+        .foregroundStyle(.secondary)
+        .frame(width: 24)
+        .accessibilityIdentifier("leo.toolbar.overflow")
+        .popover(isPresented: $showPDFLayoutPopover, arrowEdge: .bottom) {
+            PDFLayoutPreferencesForm(
+                layoutMode: $pdfLayoutMode,
+                scrollAxis: $pdfScrollAxis,
+                fitPolicy: $pdfFitPolicy
+            )
+            .padding()
+            .frame(minWidth: 360, minHeight: 240)
+        }
+    }
+
+    @ViewBuilder
+    private var floatingActionButtons: some View {
+        if chromeVisible {
+            FloatingActionButtons(
+                onLibrary: {
+                    NotificationCenter.default.post(name: .leoShowLibrary, object: nil)
+                },
+                onVocabulary: {
+                    NotificationCenter.default.post(name: .leoShowVocabulary, object: nil)
+                },
+                onSettings: {
+                    showReadingChromePopover.toggle()
+                }
+            )
+            .padding(.trailing, 20)
+            .padding(.bottom, 20)
+            .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .bottomTrailing)))
+            .zIndex(14_000)
+        }
+    }
+
+    // MARK: - Body
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            readerContent
+                .ignoresSafeArea(.all, edges: .top)
+        }
+        .overlay(alignment: .bottom) { progressBar }
+        .overlay(alignment: .topLeading) { uiTestProbes }
+        .overlay(alignment: .top) { searchBarOverlay }
+        .animation(.easeInOut(duration: 0.18), value: showSearchBar)
+        .overlay(alignment: .top) { floatingToolbar }
+        .overlay(alignment: .bottomTrailing) { floatingActionButtons }
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: chromeVisible)
+        .toolbarVisibility(.hidden, for: .windowToolbar)
         .onContinuousHover { phase in
             switch phase {
             case .active(let location):
@@ -887,5 +941,59 @@ private struct SearchBarView: View {
             Divider()
         }
         .accessibilityIdentifier("leo.search.bar")
+    }
+}
+
+// MARK: - Floating Action Buttons
+
+/// Three floating action buttons shown at bottom-right when chrome is visible.
+/// They auto-hide with the same `chromeVisible` state as the top toolbar.
+private struct FloatingActionButtons: View {
+    let onLibrary: () -> Void
+    let onVocabulary: () -> Void
+    let onSettings: () -> Void
+
+    var body: some View {
+        VStack(spacing: 12) {
+            FloatingButton(
+                icon: "books.vertical",
+                accessibilityLabel: "Library",
+                action: onLibrary
+            )
+            .accessibilityIdentifier("leo.fab.library")
+
+            FloatingButton(
+                icon: "character.book.closed",
+                accessibilityLabel: "Vocabulary",
+                action: onVocabulary
+            )
+            .accessibilityIdentifier("leo.fab.vocabulary")
+
+            FloatingButton(
+                icon: "textformat.size",
+                accessibilityLabel: "Reading Settings",
+                action: onSettings
+            )
+            .accessibilityIdentifier("leo.fab.settings")
+        }
+    }
+}
+
+private struct FloatingButton: View {
+    let icon: String
+    let accessibilityLabel: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundStyle(.primary)
+                .frame(width: 36, height: 36)
+                .background(.ultraThinMaterial, in: Circle())
+                .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(accessibilityLabel)
     }
 }
