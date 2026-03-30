@@ -12,6 +12,7 @@ struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var runtime: LeoRuntime
     @Query(sort: \Book.lastOpenedAt, order: .reverse) private var books: [Book]
+    @AppStorage("leo.readingTheme") private var theme: ReadingTheme = .light
     @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
     @State private var selectedBook: Book?
     @State private var showAnkiImporter = false
@@ -22,6 +23,16 @@ struct ContentView: View {
     @State private var pdfConvertError: String?
     @State private var bookImportError: String?
     @State private var pdfPreparationTasks: [UUID: Task<Void, Never>] = [:]
+
+    // MARK: - Theme
+
+    private var themeBackground: Color {
+        switch theme {
+        case .light: Color(red: 0.984, green: 0.984, blue: 0.984)
+        case .sepia: Color(red: 0.973, green: 0.945, blue: 0.890)
+        case .dark:  Color(red: 0.071, green: 0.071, blue: 0.071)
+        }
+    }
 
     // MARK: - View Builder Sub-expressions
 
@@ -37,16 +48,17 @@ struct ContentView: View {
             onDelete: deleteBook,
             onPreparePDFBookView: { preparePDFBookViewIfNeeded($0, userInitiated: true) }
         )
-        // Liquid Glass styling on macOS 26+; fall back to ultra-thin material.
+        // Liquid Glass styling on macOS 26+; fall back to ultra-thin material tinted by the reading theme.
         .background {
             if #available(macOS 26, *) {
                 // glassEffect is the macOS 26 Liquid Glass API
                 Color.clear.glassEffect(.regular)
             } else {
-                Color(nsColor: .windowBackgroundColor).opacity(0.85)
+                themeBackground.opacity(0.55)
                     .background(.ultraThinMaterial)
             }
         }
+        .animation(.easeInOut(duration: 0.3), value: theme)
     }
 
     // MARK: - Body

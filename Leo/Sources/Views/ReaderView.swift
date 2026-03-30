@@ -383,7 +383,7 @@ struct ReaderView: View {
         .overlay(alignment: .bottom) { progressBar }
         .overlay(alignment: .topLeading) { uiTestProbes }
         .overlay(alignment: .top) { searchBarOverlay }
-        .animation(.easeInOut(duration: 0.18), value: showSearchBar)
+        .animation(.spring(response: 0.28, dampingFraction: 0.88), value: showSearchBar)
         .overlay(alignment: .top) { floatingToolbar }
         .overlay(alignment: .bottomTrailing) { floatingActionButtons }
         .animation(.spring(response: 0.3, dampingFraction: 0.85), value: chromeVisible)
@@ -476,7 +476,7 @@ struct ReaderView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .leoToggleSearch)) { _ in
             guard usesFoliateReader else { return }
-            withAnimation(.easeInOut(duration: 0.18)) {
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.88)) {
                 showSearchBar.toggle()
             }
             if showSearchBar {

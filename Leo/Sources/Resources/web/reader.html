@@ -75,6 +75,10 @@
             background: var(--leo-accent, #007AFF);
             transition: width 0.3s ease;
         }
+
+        /* Hide any built-in foliate-js progress UI to avoid overlap with Leo's own bar */
+        foliate-view::part(progress) { display: none !important; }
+        #progress-slider { display: none !important; }
     </style>
 </head>
 <body>
