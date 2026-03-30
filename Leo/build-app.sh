@@ -1,12 +1,12 @@
 #!/bin/bash
-# Build script: creates Leo.app bundle from SPM executable
+# Build script: creates LeoComposer2.app (default) from SPM executable "Leo"
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
 APP_NAME="Leo"
-BUNDLE_STEM="${LEO_BUNDLE_STEM_OVERRIDE:-${APP_NAME}}"
+BUNDLE_STEM="${LEO_BUNDLE_STEM_OVERRIDE:-LeoComposer2}"
 BUNDLE_NAME="${BUNDLE_STEM}.app"
 BUNDLE_ID="${LEO_BUNDLE_ID_OVERRIDE:-com.franciscodilussor.leo}"
 OUTPUT_DIR="build"

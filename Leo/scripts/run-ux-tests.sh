@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Full UX gate: build Leo.app, then run XCUITest via Leo/XcodeUX (no SwiftPM workspace required).
+# Full UX gate: build LeoUITest.app (override), then run XCUITest via Leo/XcodeUX.
 # Run from anywhere: ./Leo/scripts/run-ux-tests.sh  (or cd Leo && ./scripts/run-ux-tests.sh)
 # Host may need Accessibility enabled for the test runner if macOS prompts.
 set -euo pipefail

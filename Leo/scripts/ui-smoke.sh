@@ -9,7 +9,8 @@ cd "$ROOT"
 echo "=== Leo UI smoke ==="
 ./build-app.sh
 
-APP="$ROOT/build/Leo.app"
+APP_STEM="${LEO_BUNDLE_STEM_OVERRIDE:-LeoComposer2}"
+APP="$ROOT/build/${APP_STEM}.app"
 APP_BIN="$APP/Contents/MacOS/Leo"
 SMOKE_DATA_DIR="$(mktemp -d "${TMPDIR:-/tmp}/leo-ui-smoke.XXXXXX")"
 
@@ -37,7 +38,7 @@ echo "OK: process running"
 if [[ "${LEO_UI_SMOKE_SKIP_AX:-}" == "1" ]]; then
   echo "SKIP: window check (LEO_UI_SMOKE_SKIP_AX=1)"
 else
-  osascript -e 'tell application "Leo" to activate' >/dev/null 2>&1 || true
+  osascript -e "tell application \"${APP_STEM}\" to activate" >/dev/null 2>&1 || true
   sleep 1
   w=$(osascript -e 'tell application "System Events" to tell process "Leo" to count windows' 2>/dev/null || echo "0")
   if [[ "${w:-0}" =~ ^[1-9] ]]; then
@@ -47,7 +48,7 @@ else
   fi
 fi
 
-osascript -e 'quit app "Leo"' 2>/dev/null || true
+osascript -e "quit app \"${APP_STEM}\"" 2>/dev/null || true
 sleep 1
 if pgrep -x Leo >/dev/null 2>&1; then
   echo "WARN: forcing killall Leo"

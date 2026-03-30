@@ -795,7 +795,7 @@ struct LibrarySidebar: View {
                 .help("Import Book (Cmd+O)")
             }
         }
-        .navigationTitle("Leo")
+        .navigationTitle(Bundle.main.leoComposerSidebarTitle)
     }
 
     private func bookMetadataLine(for book: Book) -> String {
