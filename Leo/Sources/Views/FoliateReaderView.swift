@@ -241,12 +241,12 @@ struct FoliateReaderView: NSViewRepresentable {
             let encoded: Data
             let literal: String
             do {
-                encoded = try JSONSerialization.data(withJSONObject: href)
-                guard let str = String(data: encoded, encoding: .utf8) else {
+                encoded = try JSONSerialization.data(withJSONObject: [href])
+                guard let arr = String(data: encoded, encoding: .utf8) else {
                     NSLog("[Leo Bridge] goToTocItem: failed to decode JSON bytes as UTF-8 for href '\(href)'")
                     return
                 }
-                literal = str
+                literal = String(arr.dropFirst().dropLast()) // strip [ ]
             } catch {
                 NSLog("[Leo Bridge] goToTocItem: failed to serialize href '\(href)': \(error)")
                 return
@@ -284,11 +284,12 @@ struct FoliateReaderView: NSViewRepresentable {
 
         /// Sets the foliate-js spread mode: "none" (single page), "auto" (2-page when wide), "both" (always 2-page).
         func setSpreadMode(_ mode: String) {
-            guard let encoded = try? JSONSerialization.data(withJSONObject: mode),
-                  let literal = String(data: encoded, encoding: .utf8) else {
+            guard let encoded = try? JSONSerialization.data(withJSONObject: [mode]),
+                  let arr = String(data: encoded, encoding: .utf8) else {
                 NSLog("[Leo Bridge] setSpreadMode: failed to serialize mode")
                 return
             }
+            let literal = String(arr.dropFirst().dropLast())
             webView?.evaluateJavaScript("setSpreadMode(\(literal))") { _, error in
                 if let error {
                     NSLog("[Leo Bridge] setSpreadMode JS error: \(error)")
@@ -301,11 +302,12 @@ struct FoliateReaderView: NSViewRepresentable {
         /// Triggers a full-book search for `query` using foliate-js's search API.
         /// The JS side highlights all matches and navigates to the first one.
         func searchInBook(_ query: String) {
-            guard let encoded = try? JSONSerialization.data(withJSONObject: query),
-                  let literal = String(data: encoded, encoding: .utf8) else {
+            guard let encoded = try? JSONSerialization.data(withJSONObject: [query]),
+                  let arr = String(data: encoded, encoding: .utf8) else {
                 NSLog("[Leo Bridge] searchInBook: failed to serialize query")
                 return
             }
+            let literal = String(arr.dropFirst().dropLast())
             webView?.evaluateJavaScript("searchInBook(\(literal))") { _, error in
                 if let error {
                     NSLog("[Leo Bridge] searchInBook JS error: \(error)")
@@ -708,10 +710,12 @@ struct FoliateReaderView: NSViewRepresentable {
                 return
             }
 
+            // Wrap the spread mode string in an array for JSONSerialization (requires top-level Array/Dict),
+            // then extract the escaped string.
             let spreadLiteral: String
-            if let spreadData = try? JSONSerialization.data(withJSONObject: latestReading.spreadMode),
-               let spreadStr = String(data: spreadData, encoding: .utf8) {
-                spreadLiteral = spreadStr
+            if let spreadData = try? JSONSerialization.data(withJSONObject: [latestReading.spreadMode]),
+               let spreadArr = String(data: spreadData, encoding: .utf8) {
+                spreadLiteral = String(spreadArr.dropFirst().dropLast()) // strip [ ]
             } else {
                 spreadLiteral = "\"auto\""
             }
