@@ -30,12 +30,12 @@ struct PDFConverter: Sendable {
         pdfURL: URL,
         outputEPUBURL: URL,
         progress: (@Sendable (Double) -> Void)? = nil
-    ) throws -> PDFBookViewAssessment {
+    ) async throws -> PDFBookViewAssessment {
         progress?(0.05)
         let parser = PDFParser()
         let content: PDFParser.PDFContent
         do {
-            content = try parser.parse(fileURL: pdfURL)
+            content = try await parser.parse(fileURL: pdfURL)
         } catch {
             throw PDFConverterError.conversionFailed(error)
         }

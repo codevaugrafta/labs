@@ -20,7 +20,7 @@ struct PDFParser: Sendable {
         let text: String
     }
 
-    func parse(fileURL: URL) throws -> PDFContent {
+    func parse(fileURL: URL) async throws -> PDFContent {
         guard let document = PDFDocument(url: fileURL) else {
             throw PDFParseError.cannotOpen
         }
@@ -40,7 +40,7 @@ struct PDFParser: Sendable {
                 pages.append(Page(id: i, text: cleanupChineseOCR(pdfkitText)))
             } else {
                 // Fallback: OCR via Apple Vision
-                let ocrText = ocrPage(page)
+                let ocrText = await ocrPage(page)
                 pages.append(Page(id: i, text: cleanupChineseOCR(ocrText)))
             }
         }
@@ -78,24 +78,13 @@ struct PDFParser: Sendable {
     /// OCR a single page. Uses RecognizeDocumentsRequest on macOS 26+ for
     /// structure-aware, reading-order extraction; falls back to VNRecognizeTextRequest
     /// on earlier OS versions.
-    private func ocrPage(_ page: PDFPage) -> String {
+    private func ocrPage(_ page: PDFPage) async -> String {
         guard let cgImage = renderPageToCGImage(page) else {
             return "(Could not render page for OCR)"
         }
 
         if #available(macOS 26, *) {
-            // Bridge the async structured path into the synchronous caller.
-            // The semaphore guarantees the Task write completes before the read,
-            // so nonisolated(unsafe) suppresses the false Swift 6 data-race warning.
-            nonisolated(unsafe) var result = "(OCR failed)"
-            let semaphore = DispatchSemaphore(value: 0)
-            let capturedImage = cgImage
-            Task.detached {
-                result = await ocrPageStructured(cgImage: capturedImage)
-                semaphore.signal()
-            }
-            semaphore.wait()
-            return result
+            return await ocrPageStructured(cgImage: cgImage)
         } else {
             return ocrPageLegacy(cgImage: cgImage)
         }

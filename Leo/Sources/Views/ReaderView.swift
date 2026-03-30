@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import WebKit
 
@@ -9,6 +10,8 @@ final class ReaderCoordinatorBridge: ObservableObject {
 
 struct ReaderView: View {
     let book: Book
+    /// When the split-view library column is open, hide the floating reader toolbar and use standard window chrome.
+    var librarySidebarRevealed: Bool = false
     let onPreparePDFBookView: (Book) -> Void
     let onRetryPDFBookView: (Book) -> Void
     @AppStorage("leo.readingTheme") private var theme: ReadingTheme = .light
@@ -22,16 +25,18 @@ struct ReaderView: View {
 
     @AppStorage("leo.fontSize") private var readingFontSize = 18.0
     @AppStorage("leo.lineHeight") private var readingLineHeight = 1.7
-    @AppStorage("leo.showPinyin") private var readingShowPinyin = false
     @AppStorage("leo.showHighlights") private var readingShowHighlights = true
+    /// Global shortcut / menu target for toggling pinyin visibility in the word lookup panel.
+    @AppStorage("leo.lookupShowPinyin") private var lookupShowPinyinForHotkey = true
     @AppStorage("leo.textDirection") private var readingTextDirection = "horizontal"
     @AppStorage("leo.pageStyle") private var readingPageStyle = "clean"
-    @AppStorage("leo.spreadMode") private var readingSpreadMode = "auto"
+    @AppStorage("leo.spreadMode") private var readingSpreadMode = "both"
     @AppStorage("leo.pdf.layoutMode") private var storedPDFLayoutMode = PDFPageLayoutMode.continuous.rawValue
     @AppStorage("leo.pdf.scrollAxis") private var storedPDFScrollAxis = PDFScrollAxis.vertical.rawValue
     @AppStorage("leo.pdf.fitPolicy") private var storedPDFFitPolicy = PDFPageFitPolicy.fitPage.rawValue
     @AppStorage("leo.pdf.explainerDismissed") private var pdfExplainerDismissed = false
-    @State private var showReadingChromePopover = false
+    @State private var showReadingPrefsFromToolbar = false
+    @State private var showReadingPrefsFromFAB = false
     @State private var showPDFLayoutPopover = false
     @State private var chromeVisible = true
     @State private var chromeHideTimer: Timer?
@@ -87,7 +92,6 @@ struct ReaderView: View {
                     fontSize: readingFontSize,
                     lineHeight: readingLineHeight,
                     textDirection: readingTextDirection,
-                    showPinyin: readingShowPinyin,
                     showHighlights: readingShowHighlights,
                     pageStyle: readingPageStyle,
                     spreadMode: readingSpreadMode
@@ -176,64 +180,79 @@ struct ReaderView: View {
                     .accessibilityValue(pdfPageSummary)
             }
         }
-        .padding(.top, 4)
+        .padding(.top, 24)
         .zIndex(10_000)
     }
 
     @ViewBuilder
     private var searchBarOverlay: some View {
         if showSearchBar && usesFoliateReader {
-            SearchBarView(
-                query: $searchQuery,
-                isFocused: $searchFieldFocused,
-                onSubmit: {
-                    let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if q.isEmpty {
+            ZStack(alignment: .top) {
+                Color.black.opacity(0.12)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        searchFieldFocused = false
+                        withAnimation(.spring(response: 0.28, dampingFraction: 0.88)) {
+                            showSearchBar = false
+                        }
+                        searchQuery = ""
                         coordinatorBridge.coordinator?.clearBookSearch()
-                    } else {
-                        coordinatorBridge.coordinator?.searchInBook(q)
                     }
-                },
-                onClear: {
-                    searchQuery = ""
-                    coordinatorBridge.coordinator?.clearBookSearch()
-                },
-                onDismiss: {
-                    showSearchBar = false
-                    searchQuery = ""
-                    coordinatorBridge.coordinator?.clearBookSearch()
-                }
-            )
-            .transition(.move(edge: .top).combined(with: .opacity))
+                    .accessibilityIdentifier("leo.search.dismissBackdrop")
+
+                SearchBarView(
+                    query: $searchQuery,
+                    isFocused: $searchFieldFocused,
+                    onSubmit: {
+                        let q = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if q.isEmpty {
+                            coordinatorBridge.coordinator?.clearBookSearch()
+                        } else {
+                            coordinatorBridge.coordinator?.searchInBook(q)
+                        }
+                    },
+                    onClear: {
+                        searchQuery = ""
+                        coordinatorBridge.coordinator?.clearBookSearch()
+                    },
+                    onDismiss: {
+                        showSearchBar = false
+                        searchQuery = ""
+                        coordinatorBridge.coordinator?.clearBookSearch()
+                    }
+                )
+                .transition(.move(edge: .top).combined(with: .opacity))
+            }
             .zIndex(20_000)
         }
     }
 
     @ViewBuilder
     private var floatingToolbar: some View {
-        if chromeVisible {
-            HStack(spacing: 20) {
-                Spacer()
+        if chromeVisible, !librarySidebarRevealed {
+            HStack(spacing: 28) {
+                Spacer(minLength: 0)
 
                 if usesFoliateReader {
-                    Button { showReadingChromePopover.toggle() } label: {
+                    Button {
+                        showReadingPrefsFromFAB = false
+                        showReadingPrefsFromToolbar.toggle()
+                    } label: {
                         Text("Aa")
                             .font(.system(size: 15, weight: .medium, design: .serif))
+                            .frame(minWidth: 36, minHeight: 32)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
                     .accessibilityIdentifier("leo.toolbar.readingLayout")
-                    .popover(isPresented: $showReadingChromePopover, arrowEdge: .bottom) {
-                        ReadingPreferencesForm(
-                            theme: $theme,
-                            fontSize: $readingFontSize,
-                            lineHeight: $readingLineHeight,
-                            textDirection: $readingTextDirection,
-                            showPinyin: $readingShowPinyin,
-                            showHighlights: $readingShowHighlights,
-                            pageStyle: $readingPageStyle,
-                            spreadMode: $readingSpreadMode
-                        )
+                    .popover(
+                        isPresented: $showReadingPrefsFromToolbar,
+                        attachmentAnchor: .rect(.bounds),
+                        arrowEdge: .bottom
+                    ) {
+                        readingChromePreferencesForm
                     }
 
                     Button {
@@ -241,7 +260,9 @@ struct ReaderView: View {
                         showTOCPanel.toggle()
                     } label: {
                         Image(systemName: "list.bullet")
-                            .font(.system(size: 14))
+                            .font(.system(size: 15))
+                            .frame(minWidth: 36, minHeight: 32)
+                            .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
@@ -255,13 +276,15 @@ struct ReaderView: View {
                 }
 
                 overflowMenu
+                    .padding(.leading, 4)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 8))
+            .padding(.leading, 20)
+            .padding(.trailing, 16)
+            .padding(.vertical, 10)
+            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
             .shadow(color: .black.opacity(0.08), radius: 12, y: 4)
-            .padding(.top, 6)
-            .padding(.horizontal, 60)
+            .padding(.top, 28)
+            .padding(.horizontal, 28)
             .onHover { hovering in
                 if hovering {
                     chromeHideTimer?.invalidate()
@@ -273,6 +296,25 @@ struct ReaderView: View {
             .transition(.move(edge: .top).combined(with: .opacity))
             .zIndex(15_000)
         }
+    }
+
+    /// Reading chrome controls shown from the **Aa** toolbar button and the FAB (each has its own anchored `popover`).
+    @ViewBuilder
+    private var readingChromePreferencesForm: some View {
+        ReadingPreferencesForm(
+            theme: $theme,
+            fontSize: $readingFontSize,
+            lineHeight: $readingLineHeight,
+            textDirection: $readingTextDirection,
+            showHighlights: $readingShowHighlights,
+            pageStyle: $readingPageStyle,
+            spreadMode: $readingSpreadMode,
+            onOpenFullSettings: {
+                showReadingPrefsFromToolbar = false
+                showReadingPrefsFromFAB = false
+                Self.openLeoSettingsWindow()
+            }
+        )
     }
 
     @ViewBuilder
@@ -319,7 +361,7 @@ struct ReaderView: View {
         }
         .menuStyle(.borderlessButton)
         .foregroundStyle(.secondary)
-        .frame(width: 24)
+        .frame(minWidth: 36, minHeight: 32)
         .accessibilityIdentifier("leo.toolbar.overflow")
         .popover(isPresented: $showPDFLayoutPopover, arrowEdge: .bottom) {
             PDFLayoutPreferencesForm(
@@ -342,10 +384,14 @@ struct ReaderView: View {
                 onVocabulary: {
                     NotificationCenter.default.post(name: .leoShowVocabulary, object: nil)
                 },
-                onSettings: {
-                    showReadingChromePopover.toggle()
-                }
-            )
+                onToggleReadingPrefs: {
+                    showReadingPrefsFromToolbar = false
+                    showReadingPrefsFromFAB.toggle()
+                },
+                isReadingPrefsPresented: $showReadingPrefsFromFAB
+            ) {
+                readingChromePreferencesForm
+            }
             .padding(.trailing, 20)
             .padding(.bottom, 20)
             .onHover { hovering in
@@ -363,12 +409,15 @@ struct ReaderView: View {
 
     // MARK: - Theme Background
 
-    private var themeBackground: Color {
-        switch theme {
-        case .light: Color(red: 0.984, green: 0.984, blue: 0.984)  // #FBFBFB
-        case .sepia: Color(red: 0.973, green: 0.945, blue: 0.890)  // #F8F1E3
-        case .dark:  Color(red: 0.071, green: 0.071, blue: 0.071)  // #121212
+    private var themeBackground: Color { theme.leoContentBackground }
+
+    private static func openLeoSettingsWindow() {
+        let sel = Selector(("showSettingsWindow:"))
+        guard NSApp.responds(to: sel) else {
+            NSLog("[Leo ReaderView] Settings window selector not available")
+            return
         }
+        NSApp.sendAction(sel, to: nil, from: nil)
     }
 
     // MARK: - Body
@@ -401,23 +450,17 @@ struct ReaderView: View {
             }
         }
         .toolbarVisibility(.hidden, for: .windowToolbar)
-        .onAppear { resetChromeTimer() }
+        .onAppear {
+            if readingSpreadMode == "auto" { readingSpreadMode = "both" }
+            resetChromeTimer()
+        }
+        .onChange(of: readingSpreadMode) { _, newValue in
+            // WKWebView representable updates can be skipped when @AppStorage changes from a popover;
+            // push layout immediately so single/spread matches the control without resizing.
+            coordinatorBridge.coordinator?.setSpreadMode(newValue)
+        }
         .task(id: book.id) {
-            // Single load pass — concurrent load() calls corrupt DictionaryEngine's `loaded` flag.
-            await Task.detached(priority: .userInitiated) {
-                DictionaryEngine.shared.load()
-                FrequencyEngine.shared.load()
-                GrammarEngine.shared.load()
-                DecompositionEngine.shared.load()
-            }.value
-            familiarityTracker = FamiliarityTracker(modelContext: modelContext)
-            sessionEngine.configure(modelContext: modelContext)
-            configurePDFPresentationFromStoredState()
-            markBookOpened()
-            if book.format == .pdf {
-                onPreparePDFBookView(book)
-            }
-            refreshUITestState()
+            await runBookOpenPipeline()
         }
         .onChange(of: activePDFMode) { _, newValue in
             guard book.format == .pdf else { return }
@@ -472,7 +515,7 @@ struct ReaderView: View {
             showTOCPanel.toggle()
         }
         .onReceive(NotificationCenter.default.publisher(for: .leoTogglePinyin)) { _ in
-            readingShowPinyin.toggle()
+            lookupShowPinyinForHotkey.toggle()
         }
         .onReceive(NotificationCenter.default.publisher(for: .leoToggleSearch)) { _ in
             guard usesFoliateReader else { return }
@@ -486,6 +529,24 @@ struct ReaderView: View {
                 coordinatorBridge.coordinator?.clearBookSearch()
             }
         }
+    }
+
+    /// Isolate startup work so the main `body` type-check stays fast.
+    private func runBookOpenPipeline() async {
+        await Task.detached(priority: .userInitiated) {
+            DictionaryEngine.shared.load()
+            FrequencyEngine.shared.load()
+            GrammarEngine.shared.load()
+            DecompositionEngine.shared.load()
+        }.value
+        familiarityTracker = FamiliarityTracker(modelContext: modelContext)
+        sessionEngine.configure(modelContext: modelContext)
+        configurePDFPresentationFromStoredState()
+        markBookOpened()
+        if book.format == .pdf {
+            onPreparePDFBookView(book)
+        }
+        refreshUITestState()
     }
 
     private var activeFailureMessage: String? {
@@ -561,7 +622,13 @@ struct ReaderView: View {
             let fsrs = FSRSEngine(modelContext: modelContext)
             if fsrs.card(for: word) == nil {
                 let sentenceContext = context.isEmpty ? nil : context
-                _ = fsrs.createCard(for: word, context: sentenceContext)
+                let gloss = FloatingDictionaryController.shared.contextualGlossIfShowing(word: word)
+                let fallbackDef = DictionaryEngine.shared.lookup(word).first?.definitions.first
+                _ = fsrs.createCard(
+                    for: word,
+                    context: sentenceContext,
+                    definition: gloss ?? fallbackDef
+                )
             }
         case .setFamiliarity(let newState):
             familiarityTracker?.resetState(word, to: newState)
@@ -967,10 +1034,13 @@ private struct SearchBarView: View {
 
 /// Three floating action buttons shown at bottom-right when chrome is visible.
 /// They auto-hide with the same `chromeVisible` state as the top toolbar.
-private struct FloatingActionButtons: View {
+/// Reading preferences use a `popover` anchored to the FAB (separate from the toolbar **Aa** popover).
+private struct FloatingActionButtons<ReadingPrefs: View>: View {
     let onLibrary: () -> Void
     let onVocabulary: () -> Void
-    let onSettings: () -> Void
+    let onToggleReadingPrefs: () -> Void
+    @Binding var isReadingPrefsPresented: Bool
+    @ViewBuilder let readingPrefsContent: () -> ReadingPrefs
 
     var body: some View {
         VStack(spacing: 12) {
@@ -991,9 +1061,16 @@ private struct FloatingActionButtons: View {
             FloatingButton(
                 icon: "textformat.size",
                 accessibilityLabel: "Reading Settings",
-                action: onSettings
+                action: onToggleReadingPrefs
             )
             .accessibilityIdentifier("leo.fab.settings")
+            .popover(
+                isPresented: $isReadingPrefsPresented,
+                attachmentAnchor: .rect(.bounds),
+                arrowEdge: .top
+            ) {
+                readingPrefsContent()
+            }
         }
     }
 }

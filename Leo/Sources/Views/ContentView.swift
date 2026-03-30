@@ -13,6 +13,8 @@ struct ContentView: View {
     @EnvironmentObject private var runtime: LeoRuntime
     @Query(sort: \Book.lastOpenedAt, order: .reverse) private var books: [Book]
     @AppStorage("leo.readingTheme") private var theme: ReadingTheme = .light
+    /// When false (default), opening the app shows the cover grid; last-read book is still one tap via Continue.
+    @AppStorage("leo.resumeLastBookOnLaunch") private var resumeLastBookOnLaunch = false
     @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
     @State private var selectedBook: Book?
     @State private var showAnkiImporter = false
@@ -32,13 +34,7 @@ struct ContentView: View {
         books.filter { $0.coverImagePath == nil && epubPathForCover($0) != nil }.count
     }
 
-    private var themeBackground: Color {
-        switch theme {
-        case .light: Color(red: 0.984, green: 0.984, blue: 0.984)
-        case .sepia: Color(red: 0.973, green: 0.945, blue: 0.890)
-        case .dark:  Color(red: 0.071, green: 0.071, blue: 0.071)
-        }
-    }
+    private var themeBackground: Color { theme.leoContentBackground }
 
     // MARK: - View Builder Sub-expressions
 
@@ -54,15 +50,13 @@ struct ContentView: View {
             onDelete: deleteBook,
             onPreparePDFBookView: { preparePDFBookViewIfNeeded($0, userInitiated: true) }
         )
-        // Liquid Glass styling on macOS 26+; fall back to ultra-thin material tinted by the reading theme.
+        // Do not use `glassEffect` on the sidebar column: on macOS 26 it still composites as a circular /
+        // spotlight mask inside NavigationSplitView. System chrome already handles Liquid Glass; we only add
+        // a theme-tinted material (same on all macOS versions).
         .background {
-            if #available(macOS 26, *) {
-                // glassEffect is the macOS 26 Liquid Glass API
-                Color.clear.glassEffect(.regular)
-            } else {
-                themeBackground.opacity(0.55)
-                    .background(.ultraThinMaterial)
-            }
+            themeBackground.opacity(0.55)
+                .background(.ultraThinMaterial)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .animation(.easeInOut(duration: 0.3), value: theme)
     }
@@ -72,21 +66,34 @@ struct ContentView: View {
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             sidebarContent
-                .navigationSplitViewColumnWidth(min: 180, ideal: 220, max: 300)
+                .navigationSplitViewColumnWidth(min: 180, ideal: 240, max: 320)
         } detail: {
             if let book = selectedBook {
                 ReaderView(
                     book: book,
+                    librarySidebarRevealed: columnVisibility != .detailOnly,
                     onPreparePDFBookView: { preparePDFBookViewIfNeeded($0) },
                     onRetryPDFBookView: { preparePDFBookViewIfNeeded($0, forceRetry: true, userInitiated: true) }
                 )
                 .id(book.id) // Force fresh view when switching books
                 .ignoresSafeArea()
-            } else {
+            } else if books.isEmpty {
                 EmptyLibraryView(onImport: presentBookImportPanel)
+            } else {
+                LibraryBookPickerView(
+                    books: books,
+                    continueBook: preferredSelection,
+                    themeBackground: themeBackground,
+                    onSelectBook: { selectedBook = $0 },
+                    onImport: presentBookImportPanel
+                )
+                .ignoresSafeArea()
             }
         }
-        .navigationSplitViewStyle(.prominentDetail)
+        // `.prominentDetail` uses a floating, large-corner-radius column layout on recent macOS;
+        // after resize it leaves gaps and a “card” sidebar (see Leo UX feedback). Balanced is a
+        // standard split: columns stay flush to the window edges.
+        .navigationSplitViewStyle(.balanced)
         .toolbarVisibility(.hidden, for: .windowToolbar)
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .accessibilityIdentifier("leo.root.split")
@@ -164,14 +171,10 @@ struct ContentView: View {
             preparePDFBookViewIfNeeded(selectedBook)
             kickCoverBackfillChain()
         }
-        .onChange(of: pendingCoverExtractionCount) { _, newCount in
-            if newCount > 0 {
-                kickCoverBackfillChain()
-            }
-        }
         .onChange(of: books.map(\.id)) { _, _ in
             migrateLegacyPDFBooksIfNeeded()
             syncSelectionWithLibrary()
+            kickCoverBackfillChain()
         }
         .onChange(of: selectedBook?.id) { _, _ in
             preparePDFBookViewIfNeeded(selectedBook)
@@ -181,6 +184,13 @@ struct ContentView: View {
             pdfConvertError: $pdfConvertError,
             bookImportError: $bookImportError
         ))
+        .background(MainWindowChromeConfigurator(librarySidebarRevealed: columnVisibility != .detailOnly))
+    }
+
+    /// `true` when UI tests import a book via `LEO_UI_TEST_BOOK_PATH` — they need a selected book without the picker.
+    private var hasEnvironmentUITestBookPath: Bool {
+        guard let raw = ProcessInfo.processInfo.environment["LEO_UI_TEST_BOOK_PATH"] else { return false }
+        return !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func handleAnkiImport(_ result: Result<[URL], Error>) {
@@ -452,7 +462,7 @@ struct ContentView: View {
         pdfPreparationTasks[bookID] = Task {
             do {
                 _ = try await Task.detached(priority: .userInitiated) {
-                    try PDFConverter().convert(pdfURL: pdfURL, outputEPUBURL: outputURL)
+                    try await PDFConverter().convert(pdfURL: pdfURL, outputEPUBURL: outputURL)
                 }.value
                 await MainActor.run {
                     book.derivedEPUBPath = outputURL.path
@@ -480,7 +490,7 @@ struct ContentView: View {
                     }
                 }
             }
-            await MainActor.run {
+            await MainActor.run { () -> Void in
                 pdfPreparationTasks.removeValue(forKey: bookID)
             }
         }
@@ -538,7 +548,11 @@ struct ContentView: View {
             return
         }
 
-        selectedBook = preferredSelection
+        if hasEnvironmentUITestBookPath || resumeLastBookOnLaunch {
+            selectedBook = preferredSelection
+        } else {
+            selectedBook = nil
+        }
     }
 
     private func migrateLegacyPDFBooksIfNeeded() {
@@ -610,6 +624,11 @@ struct ContentView: View {
             bookID: book.id,
             coversDirectory: runtime.coversDirectory
         ) else { return }
+        applyExtractedCoverPath(newPath, for: book)
+    }
+
+    /// Writes cover path on the main actor after work has run off the main thread (backfill only).
+    private func applyExtractedCoverPath(_ newPath: String, for book: Book) {
         if let old = book.coverImagePath, old != newPath {
             EPUBCoverExtractor.removeCachedCoverFile(at: old)
         }
@@ -621,18 +640,35 @@ struct ContentView: View {
         }
     }
 
-    /// One cover per `Task` so SwiftUI view updates do not cancel a multi-book `.task(id:)` mid-loop.
+    /// Runs EPUB extraction off the main actor so `unzip` + IO never blocks the UI; guards stale `Book` before saving.
+    private func extractAndAssignCoverOffMainThread(for book: Book) async {
+        guard let epubPath = epubPathForCover(book) else { return }
+        guard book.coverImagePath == nil else { return }
+        let bookID = book.id
+        let coversDirectory = runtime.coversDirectory
+        let newPath = await Task.detached(priority: .utility) {
+            EPUBCoverExtractor.extractCover(
+                epubPath: epubPath,
+                bookID: bookID,
+                coversDirectory: coversDirectory
+            )
+        }.value
+        guard let newPath else { return }
+        guard let resolved = books.first(where: { $0.id == bookID }),
+              resolved.coverImagePath == nil else { return }
+        applyExtractedCoverPath(newPath, for: resolved)
+    }
+
+    /// Single bounded pass over books missing covers. Never recurses: if extraction fails, count stays flat and we do not spin forever.
     private func kickCoverBackfillChain() {
         guard !coverBackfillRunning else { return }
         guard pendingCoverExtractionCount > 0 else { return }
         coverBackfillRunning = true
+        let snapshot = books.filter { $0.coverImagePath == nil && epubPathForCover($0) != nil }
         Task { @MainActor in
             defer { coverBackfillRunning = false }
-            if let book = books.first(where: { $0.coverImagePath == nil && epubPathForCover($0) != nil }) {
-                extractAndAssignCover(for: book)
-            }
-            if pendingCoverExtractionCount > 0 {
-                kickCoverBackfillChain()
+            for book in snapshot {
+                await extractAndAssignCoverOffMainThread(for: book)
             }
         }
     }
@@ -702,6 +738,10 @@ struct LibrarySidebar: View {
     @Query private var vocabulary: [VocabularyEntry]
     @Query private var dueCards: [FSRSCard]
 
+    private var dueCardCount: Int {
+        dueCards.filter { $0.dueDate <= Date() }.count
+    }
+
     var body: some View {
         List(selection: $selectedBook) {
             Section {
@@ -709,9 +749,8 @@ struct LibrarySidebar: View {
                     HStack {
                         Label("Review Cards", systemImage: "rectangle.stack")
                         Spacer()
-                        let due = dueCards.filter { $0.dueDate <= Date() }.count
-                        if due > 0 {
-                            Text("\(due)")
+                        if dueCardCount > 0 {
+                            Text("\(dueCardCount)")
                                 .font(.caption2.weight(.bold))
                                 .padding(.horizontal, 6)
                                 .padding(.vertical, 2)
@@ -725,13 +764,16 @@ struct LibrarySidebar: View {
                 .accessibilityIdentifier("leo.sidebar.review")
 
                 Button(action: onVocabulary) {
-                    HStack {
-                        Label("Vocabulary", systemImage: "character.book.closed")
-                        Spacer()
-                        Text("\(vocabulary.count)")
-                            .font(.caption2)
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack {
+                            Label("Vocabulary", systemImage: "character.book.closed")
+                            Spacer()
+                        }
+                        Text("\(vocabulary.count) words · \(dueCardCount) due")
+                            .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("leo.sidebar.vocabulary")
@@ -743,15 +785,7 @@ struct LibrarySidebar: View {
                 .accessibilityIdentifier("leo.sidebar.stats")
             }
 
-            Section("Vocabulary") {
-                let due = dueCards.filter { $0.dueDate <= Date() }.count
-                Text("\(vocabulary.count) words · \(due) due")
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .padding(.vertical, 2)
-            }
-
-            Section("Library") {
+            Section {
                 Button(action: onImport) {
                     Label("Import Book", systemImage: "plus")
                 }
@@ -782,9 +816,15 @@ struct LibrarySidebar: View {
                         }
                     }
                 }
+            } header: {
+                Text("Library")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .textCase(nil)
             }
         }
         .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
         .accessibilityIdentifier("leo.library.sidebar")
         .toolbar {
             ToolbarItem {
@@ -841,17 +881,21 @@ private struct LibraryBookRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(book.title)
                     .font(.system(size: 13, weight: .medium))
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.85)
+                    .fixedSize(horizontal: false, vertical: true)
                 if !book.author.isEmpty {
                     Text(book.author)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
+                        .minimumScaleFactor(0.9)
                 }
                 Text(metadataLine)
                     .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
-                    .lineLimit(1)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.9)
             }
         }
         .padding(.vertical, 4)

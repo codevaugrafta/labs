@@ -59,14 +59,14 @@ struct PDFConverterPipelineTests {
 
     /// Committed raster PDF (`gen-smoke-pdf.swift`); exercises PDFParser → Vision OCR path reliably (CTLine PDFs often lack a usable `PDFPage.string` in tests).
     @Test("PDFParser reads smoke fixture (OCR path)")
-    func parserSmokeFixture() throws {
+    func parserSmokeFixture() async throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .appendingPathComponent("../XcodeUX/LeoUITests/Fixtures/smoke.pdf")
             .standardizedFileURL
         #expect(FileManager.default.fileExists(atPath: url.path), "Run Leo/scripts/gen-smoke-pdf.swift if missing.")
 
-        let content = try PDFParser().parse(fileURL: url)
+        let content = try await PDFParser().parse(fileURL: url)
         #expect(content.pages.count >= 1)
         let joined = content.pages.map(\.text).joined(separator: "\n")
         #expect(joined.localizedCaseInsensitiveContains("leo"))
@@ -147,7 +147,7 @@ struct PDFConverterPipelineTests {
     }
 
     @Test("PDFConverter produces EPUB with expected body snippets")
-    func endToEndConvert() throws {
+    func endToEndConvert() async throws {
         let pdf = try Self.makeTextPDF(pages: [
             "标题旁注\n本体第一节。",
             "标题旁注\n本体第二节。",
@@ -159,7 +159,7 @@ struct PDFConverterPipelineTests {
             try? FileManager.default.removeItem(at: epub)
         }
 
-        let assessment = try PDFConverter().convert(pdfURL: pdf, outputEPUBURL: epub)
+        let assessment = try await PDFConverter().convert(pdfURL: pdf, outputEPUBURL: epub)
         #expect(assessment.isUsable)
         #expect(assessment.usablePages == 2)
         #expect(FileManager.default.fileExists(atPath: epub.path))
@@ -202,13 +202,13 @@ struct PDFConverterPipelineTests {
     }
 
     @Test("PDFConverter quality gate accepts OCR output with real text")
-    func qualityGateAcceptsOCRText() throws {
+    func qualityGateAcceptsOCRText() async throws {
         let url = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .appendingPathComponent("../XcodeUX/LeoUITests/Fixtures/smoke.pdf")
             .standardizedFileURL
 
-        let content = try PDFParser().parse(fileURL: url)
+        let content = try await PDFParser().parse(fileURL: url)
         let assessment = PDFConverter.assess(content: content)
 
         #expect(assessment.isUsable)
@@ -217,7 +217,7 @@ struct PDFConverterPipelineTests {
     }
 
     @Test("PDFConverter quality gate rejects placeholder-only content")
-    func qualityGateRejectsLowContent() throws {
+    func qualityGateRejectsLowContent() async throws {
         let content = PDFParser.PDFContent(
             title: "LowQuality",
             pageCount: 2,
@@ -241,7 +241,7 @@ struct PDFConverterPipelineTests {
         defer { try? FileManager.default.removeItem(at: epub) }
 
         do {
-            _ = try PDFConverter().convert(pdfURL: pdf, outputEPUBURL: epub)
+            _ = try await PDFConverter().convert(pdfURL: pdf, outputEPUBURL: epub)
             Issue.record("Expected PDFConverter to reject placeholder-only content")
         } catch let error as PDFConverter.PDFConverterError {
             switch error {

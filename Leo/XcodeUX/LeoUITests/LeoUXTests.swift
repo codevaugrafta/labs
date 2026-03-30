@@ -49,7 +49,17 @@ enum LeoUXHarness {
         app.launchEnvironment = environment
         app.launchArguments = []
         app.launch()
+        revealLibrarySidebarIfNeeded(app: app)
         return app
+    }
+
+    /// `ContentView` defaults to `NavigationSplitView` **detail only** (immersive reader). Sidebar rows are off-screen until ⌃⌘S.
+    static func revealLibrarySidebarIfNeeded(app: XCUIApplication) {
+        let review = anyElement(in: app, identifier: "leo.sidebar.review")
+        if review.waitForExistence(timeout: 2) { return }
+        app.activate()
+        app.typeKey("s", modifierFlags: [.control, .command])
+        _ = review.waitForExistence(timeout: 12)
     }
 
     static func anyElement(in app: XCUIApplication, identifier: String) -> XCUIElement {

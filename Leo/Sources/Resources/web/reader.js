@@ -30,6 +30,9 @@ view.addEventListener('load', e => {
     // Must happen here, not in openBook, because 'load' fires once per section
     // navigation — each new chapter gets a fresh document.
     injectClickHandlers(doc, index)
+    // Re-apply theme styles after each section — new iframe document defaults.
+    pushLeoReaderStyles()
+    leoSyncPaginatorBackdropAndLayout()
 
     postToSwift('chapterLoaded', { index: index })
 })
@@ -135,6 +138,69 @@ function pushLeoReaderStyles() {
 }
 
 /**
+ * Drive foliate-paginator metrics from the window so columns use available width,
+ * and refresh paginator render after theme/gutter changes.
+ */
+function leoApplyPaginatorLayout() {
+    const r = view && view.renderer
+    if (!r || typeof r.setAttribute !== 'function') {
+        return
+    }
+    const w = Math.max(320, window.innerWidth || 800)
+    const spread = r.getAttribute('spread') || window.__leoSpreadMode || 'auto'
+    let columns = 1
+    if (spread === 'both') {
+        columns = 2
+    } else if (spread === 'auto' && w > 880) {
+        columns = 2
+    } else if (spread === 'none') {
+        columns = 1
+    }
+
+    // Foliate’s paginator ignores the `spread` attribute; column count comes from
+    // `--_max-column-count` / `--_max-column-count-portrait` (see attributeChangedCallback).
+    r.setAttribute('max-column-count', String(columns))
+    r.setAttribute('max-column-count-portrait', String(columns))
+
+    const marginPx = Math.max(12, Math.min(36, Math.round(w * 0.02)))
+    r.setAttribute('margin', `${marginPx}px`)
+    r.setAttribute('gap', w > 1200 ? '5%' : '7%')
+
+    const innerGutter = 56
+    const usable = Math.max(280, w - marginPx * 2 - innerGutter)
+    let maxInline = Math.floor(usable / columns - 16)
+    maxInline = Math.max(340, Math.min(960, maxInline))
+    r.setAttribute('max-inline-size', `${maxInline}px`)
+
+    if (typeof r.render === 'function') {
+        try {
+            r.render()
+        } catch (err) {
+            console.warn('[Leo] paginator layout render:', err)
+        }
+    }
+}
+
+function leoSyncPaginatorBackdropAndLayout() {
+    const bg = window._leoLastTheme?.bg
+    if (bg && view) {
+        view.style.background = bg
+    }
+    leoApplyPaginatorLayout()
+}
+
+if (!window.__leoPaginatorResizeWired) {
+    window.__leoPaginatorResizeWired = true
+    let resizeTimer = null
+    window.addEventListener('resize', () => {
+        clearTimeout(resizeTimer)
+        resizeTimer = setTimeout(() => {
+            leoSyncPaginatorBackdropAndLayout()
+        }, 120)
+    })
+}
+
+/**
  * @param {object} p — fontSizePt, lineHeight, textDirection, showPinyin, showHighlights
  */
 window.applyReadingPreferences = function (p) {
@@ -188,6 +254,7 @@ window.openBook = function(request) {
             if (view.renderer?.setAttribute) {
                 view.renderer.setAttribute('spread', spreadMode)
             }
+            leoSyncPaginatorBackdropAndLayout()
 
             postToSwift('loaded', {
                 title: view.book?.metadata?.title ?? '',
@@ -227,6 +294,7 @@ window.openBook = function(request) {
             // Expose explicit navigation for keyboard and Swift buttons.
             window._rendererNext = _rendererNext
             window._rendererPrev = _rendererPrev
+            leoSyncPaginatorBackdropAndLayout()
         } catch (err) {
             loadingEl.style.display = 'none'
             errorEl.textContent = `Error: ${err.message}`
@@ -242,6 +310,7 @@ window.setSpreadMode = function(mode) {
     if (view && view.renderer && view.renderer.setAttribute) {
         view.renderer.setAttribute('spread', mode)
     }
+    leoSyncPaginatorBackdropAndLayout()
 }
 
 // Navigate to a specific CFI position
@@ -287,6 +356,7 @@ window.setTheme = function(themeP) {
     document.documentElement.style.setProperty('--leo-accent', accent)
 
     pushLeoReaderStyles()
+    leoSyncPaginatorBackdropAndLayout()
 }
 
 // --- PAGE NAVIGATION ---
@@ -383,11 +453,13 @@ function _clearSentenceHighlight() {
 window.highlightRange = function(context, word, charIndex) {
     if (!word || word.length === 0) return
 
-    // Find the most recently loaded iframe doc — stored in _highlightDoc by injectClickHandlers.
+    // Always clear stale spans first — even when _highlightDoc is null (Swift may call
+    // this before the iframe doc is ready, or after navigation) so the previous tap's
+    // highlight cannot stick on screen.
+    _clearExpressionHighlight()
+
     const doc = _highlightDoc
     if (!doc) return
-
-    _clearExpressionHighlight()
 
     // Walk text nodes in the document to find one containing `context`.
     // We look for a text node where at least the core portion of context appears.

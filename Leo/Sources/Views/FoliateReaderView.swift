@@ -14,21 +14,19 @@ struct LeoReadingChromePreferences: Equatable {
     var fontSize: Double
     var lineHeight: Double
     var textDirection: String
-    var showPinyin: Bool
     var showHighlights: Bool
     /// `"clean"` — no shadows or texture (default); `"page"` — book-page shadows + paper texture.
     var pageStyle: String
-    /// Foliate spread mode: `"none"` (single page), `"auto"` (2-page on wide), `"both"` (always 2-page).
+    /// Foliate spread mode: `"none"` (single column), `"auto"` (two columns when wide), `"both"` (always two columns).
     var spreadMode: String
 
     static let defaultPrefs = LeoReadingChromePreferences(
         fontSize: 18,
         lineHeight: 1.7,
         textDirection: "horizontal",
-        showPinyin: false,
         showHighlights: true,
         pageStyle: "clean",
-        spreadMode: "auto"
+        spreadMode: "both"
     )
 }
 
@@ -386,7 +384,6 @@ struct FoliateReaderView: NSViewRepresentable {
                 // Show native floating panel — replaces the in-JS popup.
                 let familiarity = self.familiarityForWord(word)
                 let alreadyInReview = self.hasReviewCardForWord(word)
-                let showPinyin = self.latestReading.showPinyin
 
                 // Extract the sentence containing the tapped word from the context string.
                 // Uses the same boundary characters as reader.js: 。！？ and newlines.
@@ -410,7 +407,6 @@ struct FoliateReaderView: NSViewRepresentable {
                         freqData: freqData,
                         familiarity: familiarity,
                         alreadyInReview: alreadyInReview,
-                        showPinyin: showPinyin,
                         context: context,
                         contextSentence: contextSentence,
                         webViewX: x,
@@ -502,7 +498,6 @@ struct FoliateReaderView: NSViewRepresentable {
             freqData: FrequencyEngine.FrequencyData,
             familiarity: FamiliarityState,
             alreadyInReview: Bool,
-            showPinyin: Bool,
             context: String,
             contextSentence: String?,
             webViewX: CGFloat,
@@ -513,7 +508,7 @@ struct FoliateReaderView: NSViewRepresentable {
             // conversions that are fragile. NSEvent.mouseLocation is always correct.
             let screenPoint = NSEvent.mouseLocation
 
-            let pinyin = showPinyin ? (entries.first?.pinyinDisplay ?? "") : ""
+            let pinyin = entries.first?.pinyinDisplay ?? ""
             let definitions = entries.flatMap(\.definitions)
 
             var grammarTitle: String?
@@ -670,12 +665,11 @@ struct FoliateReaderView: NSViewRepresentable {
 
         /// Push theme + Reading settings into `reader.js` (`setTheme` + `applyReadingPreferences`).
         func pushReaderChrome(webView: WKWebView) {
-            // Apple Books–matched theme colors
-            let themeData: [String: String] = switch latestTheme {
-            case .light: ["bg": "#FBFBFB", "fg": "#000000"]
-            case .dark:  ["bg": "#121212", "fg": "#B0B0B0"]
-            case .sepia: ["bg": "#F8F1E3", "fg": "#2C1F0E"]
-            }
+            // Apple Books–matched theme colors (see `ReadingTheme+Leo.swift`)
+            let themeData: [String: String] = [
+                "bg": latestTheme.foliateBackgroundHex,
+                "fg": latestTheme.foliateForegroundHex,
+            ]
             let themeStr: String
             do {
                 let themeJSON = try JSONSerialization.data(withJSONObject: themeData)
@@ -693,7 +687,7 @@ struct FoliateReaderView: NSViewRepresentable {
                 "fontSizePt": latestReading.fontSize,
                 "lineHeight": latestReading.lineHeight,
                 "textDirection": latestReading.textDirection,
-                "showPinyin": latestReading.showPinyin,
+                "showPinyin": false,
                 "showHighlights": latestReading.showHighlights,
                 "pageStyle": latestReading.pageStyle,
             ]

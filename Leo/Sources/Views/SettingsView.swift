@@ -205,13 +205,13 @@ struct TTSSettingsTab: View {
 
 struct ReadingSettingsTab: View {
     @AppStorage("leo.readingTheme") private var readingTheme: ReadingTheme = .light
+    @AppStorage("leo.resumeLastBookOnLaunch") private var resumeLastBookOnLaunch = false
     @AppStorage("leo.fontSize") private var fontSize = 18.0
     @AppStorage("leo.lineHeight") private var lineHeight = 1.8
-    @AppStorage("leo.showPinyin") private var showPinyin = false
     @AppStorage("leo.showHighlights") private var showHighlights = true
     @AppStorage("leo.textDirection") private var textDirection = "horizontal"
     @AppStorage("leo.pageStyle") private var pageStyle = "clean"
-    @AppStorage("leo.spreadMode") private var spreadMode = "auto"
+    @AppStorage("leo.spreadMode") private var spreadMode = "both"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -220,11 +220,15 @@ struct ReadingSettingsTab: View {
                 fontSize: $fontSize,
                 lineHeight: $lineHeight,
                 textDirection: $textDirection,
-                showPinyin: $showPinyin,
                 showHighlights: $showHighlights,
                 pageStyle: $pageStyle,
                 spreadMode: $spreadMode
             )
+            Toggle("Open last-read book on launch", isOn: $resumeLastBookOnLaunch)
+                .padding(.top, 12)
+            Text("When off, Leo opens the library with book covers; use Continue reading or pick a title.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
         .padding()
         .accessibilityIdentifier("leo.settings.tab.reading")

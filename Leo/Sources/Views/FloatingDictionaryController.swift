@@ -45,6 +45,13 @@ final class FloatingDictionaryController {
         setupNotificationObserver()
     }
 
+    /// Contextual gloss for `word` when the floating panel is currently showing that word — used when creating SRS cards.
+    func contextualGlossIfShowing(word: String) -> String? {
+        guard word == currentWord else { return nil }
+        let g = currentData?.contextualGloss?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (g?.isEmpty == false) ? g : nil
+    }
+
     // MARK: - Show
 
     /// Display (or update) the floating panel near `screenPoint`.

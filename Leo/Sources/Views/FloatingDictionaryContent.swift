@@ -6,7 +6,8 @@ import AppKit
 /// Data model passed into the floating panel for a single word lookup.
 struct DictionaryLookupData: Sendable {
     let word: String
-    let pinyin: String           // Empty string when user has pinyin disabled
+    /// Tone-marked pinyin when the dictionary has it; visibility is controlled in the panel (eye toggle).
+    let pinyin: String
     let definitions: [String]
     let hskLevel: Int?
     let grammarTitle: String?    // e.g. "A2 · 不得不 structure"
@@ -27,6 +28,8 @@ struct DictionaryLookupData: Sendable {
 /// Design: macOS Dictionary.app — solid background, clean typography, native feel.
 struct FloatingDictionaryContent: View {
 
+    @AppStorage("leo.lookupShowPinyin") private var lookupShowPinyin = true
+
     let data: DictionaryLookupData
     let onKnow: () -> Void
     let onReview: () -> Void
@@ -36,20 +39,29 @@ struct FloatingDictionaryContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // MARK: Header — word + pinyin + HSK badge
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
+            // MARK: Header — lemma + pinyin toggle + HSK badge
+            HStack(alignment: .center, spacing: 10) {
                 Text(data.word)
                     .font(.system(size: 28, weight: .bold, design: .serif))
                     .foregroundStyle(.primary)
                     .textSelection(.enabled)
 
                 if !data.pinyin.isEmpty {
-                    Text(data.pinyin)
-                        .font(.system(size: 15, weight: .regular))
-                        .foregroundStyle(.orange)
+                    Button {
+                        lookupShowPinyin.toggle()
+                    } label: {
+                        Image(systemName: lookupShowPinyin ? "eye.fill" : "eye.slash")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 28, height: 28)
+                    }
+                    .buttonStyle(.plain)
+                    .help(lookupShowPinyin ? "Hide pinyin" : "Show pinyin")
+                    .accessibilityLabel(lookupShowPinyin ? "Hide pinyin" : "Show pinyin")
+                    .accessibilityIdentifier("leo.lookup.togglePinyin")
                 }
 
-                Spacer()
+                Spacer(minLength: 8)
 
                 if let hsk = data.hskLevel {
                     HSKBadge(level: hsk)
@@ -57,6 +69,15 @@ struct FloatingDictionaryContent: View {
             }
             .padding(.top, 16)
             .padding(.horizontal, 18)
+
+            if lookupShowPinyin, !data.pinyin.isEmpty {
+                Text(data.pinyin)
+                    .font(.system(size: 15, weight: .regular, design: .rounded))
+                    .foregroundStyle(.orange)
+                    .textSelection(.enabled)
+                    .padding(.top, 4)
+                    .padding(.horizontal, 18)
+            }
 
             // MARK: Context sentence — shows the full sentence with the tapped word bolded
             if let sentence = data.contextSentence, !sentence.isEmpty {
