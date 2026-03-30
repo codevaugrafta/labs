@@ -151,7 +151,7 @@ struct ReviewView: View {
 
                 VStack(spacing: 8) {
                     Button("Show Answer") {
-                        withAnimation(.easeOut(duration: 0.2)) {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
                             showAnswer = true
                         }
                     }

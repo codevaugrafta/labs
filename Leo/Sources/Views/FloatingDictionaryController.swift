@@ -71,7 +71,25 @@ final class FloatingDictionaryController {
             let newPanel = makePanel(data: data, onKnow: onKnow, onReview: onReview, onListen: onListen)
             self.panel = newPanel
             repositionPanel(newPanel, near: screenPoint)
+
+            newPanel.alphaValue = 0
+            newPanel.setFrame(
+                NSRect(x: newPanel.frame.origin.x, y: newPanel.frame.origin.y - 8,
+                       width: newPanel.frame.width, height: newPanel.frame.height),
+                display: false
+            )
             newPanel.orderFront(nil)
+
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0.25
+                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                newPanel.animator().alphaValue = 1
+                newPanel.animator().setFrame(
+                    NSRect(x: newPanel.frame.origin.x, y: newPanel.frame.origin.y + 8,
+                           width: newPanel.frame.width, height: newPanel.frame.height),
+                    display: true
+                )
+            }
         }
         installMonitors()
     }
@@ -79,8 +97,19 @@ final class FloatingDictionaryController {
     // MARK: - Dismiss
 
     func dismiss() {
-        panel?.orderOut(nil)
-        removeMonitors()
+        guard let panel, panel.isVisible else {
+            removeMonitors()
+            return
+        }
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.15
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            panel.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            panel.orderOut(nil)
+            panel.alphaValue = 1
+            self?.removeMonitors()
+        })
     }
 
     // MARK: - Private helpers
@@ -211,9 +240,9 @@ final class FloatingDictionaryController {
         let size = panel.contentView?.fittingSize ?? CGSize(width: 340, height: 180)
         let verticalOffset: CGFloat = 12
 
-        let screen = NSScreen.screens.first(where: { NSMouseInCocoaScreen($0) })
+        guard let screen = NSScreen.screens.first(where: { NSMouseInCocoaScreen($0) })
             ?? NSScreen.main
-            ?? NSScreen.screens[0]
+            ?? NSScreen.screens.first else { return }
         let visibleFrame = screen.visibleFrame
 
         // Default: below the tap point.

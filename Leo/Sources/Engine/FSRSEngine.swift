@@ -208,6 +208,7 @@ final class FSRSEngine {
         guard let lastReview = card.lastReviewDate else { return 1.0 }
         let elapsed = Date().timeIntervalSince(lastReview) / 86400.0
         let decay = card.decay ?? w[20]
+        guard abs(decay) > 1e-10 else { return 0.9 } // fallback: assume 90% if decay is zero
         let factor = pow(0.9, 1.0 / decay) - 1.0
         return pow(1.0 + factor * elapsed / card.stability, decay)
     }
@@ -218,6 +219,7 @@ final class FSRSEngine {
     private func nextInterval(stability: Double, card: FSRSCard) -> Double {
         let requestedRetention = 0.9
         let decay = card.decay ?? w[20]
+        guard abs(decay) > 1e-10 else { return max(1, Double(Int(round(stability)))) } // fallback: use stability as interval if decay is zero
         let factor = pow(0.9, 1.0 / decay) - 1.0
         let interval = stability / factor * (pow(requestedRetention, 1.0 / decay) - 1.0)
         return max(1.0, min(interval, 36500.0)) // 1 day to 100 years
