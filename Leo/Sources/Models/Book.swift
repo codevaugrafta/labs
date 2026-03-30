@@ -25,6 +25,8 @@ final class Book {
     var preferredPDFModeRaw: String?
     var pdfLastPageIndex: Int?
     var pdfFitPolicyRaw: String?
+    /// Cached cover image on disk (Application Support/.../Covers/{uuid}.{ext}); populated for EPUBs (and PDF Book View when derived EPUB exists).
+    var coverImagePath: String?
 
     init(
         title: String,
@@ -47,6 +49,7 @@ final class Book {
         self.preferredPDFModeRaw = PDFReadingMode.originalPDF.rawValue
         self.pdfLastPageIndex = 0
         self.pdfFitPolicyRaw = PDFPageFitPolicy.fitPage.rawValue
+        self.coverImagePath = nil
     }
 }
 

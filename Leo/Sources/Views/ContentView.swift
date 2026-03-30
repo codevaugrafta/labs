@@ -23,8 +23,14 @@ struct ContentView: View {
     @State private var pdfConvertError: String?
     @State private var bookImportError: String?
     @State private var pdfPreparationTasks: [UUID: Task<Void, Never>] = [:]
+    @State private var coverBackfillRunning = false
 
     // MARK: - Theme
+
+    /// Books that could get a cover thumbnail but do not have one yet.
+    private var pendingCoverExtractionCount: Int {
+        books.filter { $0.coverImagePath == nil && epubPathForCover($0) != nil }.count
+    }
 
     private var themeBackground: Color {
         switch theme {
@@ -156,6 +162,12 @@ struct ContentView: View {
             migrateLegacyPDFBooksIfNeeded()
             syncSelectionWithLibrary()
             preparePDFBookViewIfNeeded(selectedBook)
+            kickCoverBackfillChain()
+        }
+        .onChange(of: pendingCoverExtractionCount) { _, newCount in
+            if newCount > 0 {
+                kickCoverBackfillChain()
+            }
         }
         .onChange(of: books.map(\.id)) { _, _ in
             migrateLegacyPDFBooksIfNeeded()
@@ -230,6 +242,9 @@ struct ContentView: View {
             NSLog("[Leo] UI test: failed to save book '\(title)': \(error)")
         }
         selectedBook = book
+        if format == .epub {
+            extractAndAssignCover(for: book)
+        }
         preparePDFBookViewIfNeeded(book)
     }
 
@@ -292,6 +307,9 @@ struct ContentView: View {
         if let existing = existingBook(matchingLibraryFilename: fileName) {
             if FileManager.default.fileExists(atPath: existing.filePath) {
                 selectedBook = existing
+                if existing.coverImagePath == nil {
+                    extractAndAssignCover(for: existing)
+                }
                 preparePDFBookViewIfNeeded(existing)
                 return
             }
@@ -342,6 +360,9 @@ struct ContentView: View {
             return
         }
         selectedBook = book
+        if format == .epub {
+            extractAndAssignCover(for: book)
+        }
         preparePDFBookViewIfNeeded(book)
     }
 
@@ -438,6 +459,7 @@ struct ContentView: View {
                     book.pdfPreparationStatus = .ready
                     book.pdfPreparationError = nil
                     LocalServer.shared.registerBook(id: book.id.uuidString, filePath: outputURL.path)
+                    extractAndAssignCover(for: book)
                     do {
                         try modelContext.save()
                     } catch {
@@ -468,6 +490,8 @@ struct ContentView: View {
         let bookTitle = book.title
         pdfPreparationTasks[book.id]?.cancel()
         pdfPreparationTasks.removeValue(forKey: book.id)
+
+        EPUBCoverExtractor.removeCachedCoverFile(at: book.coverImagePath)
 
         if FileManager.default.fileExists(atPath: book.filePath) {
             do {
@@ -563,6 +587,54 @@ struct ContentView: View {
 
         let persistedMatches = persisted.filter { ($0.filePath as NSString).lastPathComponent == normalizedFileName }
         return persistedMatches.max(by: { effectiveOpenDate(for: $0) < effectiveOpenDate(for: $1) })
+    }
+
+    // MARK: - EPUB covers
+
+    private func epubPathForCover(_ book: Book) -> String? {
+        switch book.format {
+        case .epub:
+            guard FileManager.default.fileExists(atPath: book.filePath) else { return nil }
+            return book.filePath
+        case .pdf:
+            guard let derived = book.derivedEPUBPath,
+                  FileManager.default.fileExists(atPath: derived) else { return nil }
+            return derived
+        }
+    }
+
+    private func extractAndAssignCover(for book: Book) {
+        guard let epubPath = epubPathForCover(book) else { return }
+        guard let newPath = EPUBCoverExtractor.extractCover(
+            epubPath: epubPath,
+            bookID: book.id,
+            coversDirectory: runtime.coversDirectory
+        ) else { return }
+        if let old = book.coverImagePath, old != newPath {
+            EPUBCoverExtractor.removeCachedCoverFile(at: old)
+        }
+        book.coverImagePath = newPath
+        do {
+            try modelContext.save()
+        } catch {
+            NSLog("[Leo] Failed to save cover path for '\(book.title)': \(error)")
+        }
+    }
+
+    /// One cover per `Task` so SwiftUI view updates do not cancel a multi-book `.task(id:)` mid-loop.
+    private func kickCoverBackfillChain() {
+        guard !coverBackfillRunning else { return }
+        guard pendingCoverExtractionCount > 0 else { return }
+        coverBackfillRunning = true
+        Task { @MainActor in
+            defer { coverBackfillRunning = false }
+            if let book = books.first(where: { $0.coverImagePath == nil && epubPathForCover($0) != nil }) {
+                extractAndAssignCover(for: book)
+            }
+            if pendingCoverExtractionCount > 0 {
+                kickCoverBackfillChain()
+            }
+        }
     }
 
     /// Clean up ugly filenames into readable titles
@@ -743,12 +815,28 @@ private struct LibraryBookRow: View {
     let metadataLine: String
     let isSelected: Bool
 
+    private var coverThumbnail: NSImage? {
+        guard let path = book.coverImagePath,
+              FileManager.default.fileExists(atPath: path) else { return nil }
+        return NSImage(contentsOfFile: path)
+    }
+
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: book.format == .epub ? "book.fill" : "doc.fill")
-                .font(.system(size: 20))
-                .foregroundStyle(.secondary)
-                .frame(width: 28)
+            Group {
+                if let coverThumbnail {
+                    Image(nsImage: coverThumbnail)
+                        .resizable()
+                        .scaledToFill()
+                } else {
+                    Image(systemName: book.format == .epub ? "book.fill" : "doc.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: 28, height: 40)
+            .clipped()
+            .clipShape(RoundedRectangle(cornerRadius: 4))
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(book.title)

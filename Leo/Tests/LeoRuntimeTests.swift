@@ -15,6 +15,7 @@ struct LeoRuntimeTests {
 
         #expect(paths.rootDirectory.path == "/tmp/AppSupport/Leo")
         #expect(paths.booksDirectory.path == "/tmp/AppSupport/Leo/Books")
+        #expect(paths.coversDirectory.path == "/tmp/AppSupport/Leo/Covers")
         #expect(paths.storeURL.path == "/tmp/AppSupport/Leo/Leo.store")
         #expect(paths.usesUITestIsolation == false)
     }
@@ -29,6 +30,7 @@ struct LeoRuntimeTests {
 
         #expect(paths.rootDirectory.path == "/tmp/leo-test-root")
         #expect(paths.booksDirectory.path == "/tmp/leo-test-root/Books")
+        #expect(paths.coversDirectory.path == "/tmp/leo-test-root/Covers")
         #expect(paths.storeURL.path == "/tmp/leo-test-root/Leo.store")
         #expect(paths.usesUITestIsolation)
     }

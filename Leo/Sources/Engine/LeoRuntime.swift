@@ -17,6 +17,7 @@ enum ReaderServerState: Equatable {
 struct LeoRuntimePaths: Equatable {
     let rootDirectory: URL
     let booksDirectory: URL
+    let coversDirectory: URL
     let storeURL: URL
     let usesUITestIsolation: Bool
 
@@ -29,6 +30,7 @@ struct LeoRuntimePaths: Equatable {
             return LeoRuntimePaths(
                 rootDirectory: root,
                 booksDirectory: root.appendingPathComponent("Books", isDirectory: true),
+                coversDirectory: root.appendingPathComponent("Covers", isDirectory: true),
                 storeURL: root.appendingPathComponent("Leo.store"),
                 usesUITestIsolation: true
             )
@@ -38,6 +40,7 @@ struct LeoRuntimePaths: Equatable {
         return LeoRuntimePaths(
             rootDirectory: root,
             booksDirectory: root.appendingPathComponent("Books", isDirectory: true),
+            coversDirectory: root.appendingPathComponent("Covers", isDirectory: true),
             storeURL: root.appendingPathComponent("Leo.store"),
             usesUITestIsolation: false
         )
@@ -79,6 +82,10 @@ final class LeoRuntime: ObservableObject {
 
     var booksDirectory: URL {
         paths.booksDirectory
+    }
+
+    var coversDirectory: URL {
+        paths.coversDirectory
     }
 
     var storeURL: URL {
@@ -133,6 +140,7 @@ final class LeoRuntime: ObservableObject {
         // book import will fail with a user-visible error if the directory is truly unusable.
         try? fileManager.createDirectory(at: paths.rootDirectory, withIntermediateDirectories: true)
         try? fileManager.createDirectory(at: paths.booksDirectory, withIntermediateDirectories: true)
+        try? fileManager.createDirectory(at: paths.coversDirectory, withIntermediateDirectories: true)
     }
 
     private func findWebResourcesPath() -> String? {
