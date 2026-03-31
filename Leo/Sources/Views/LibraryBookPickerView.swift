@@ -9,8 +9,6 @@ struct LibraryBookPickerView: View {
     let themeBackground: Color
     let onSelectBook: (Book) -> Void
     let onImport: () -> Void
-    let onReview: () -> Void
-    let onVocabulary: () -> Void
     let dueCardCount: Int
     let totalVocabCount: Int
 
@@ -23,39 +21,17 @@ struct LibraryBookPickerView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                HStack(spacing: 10) {
-                    Text("Library")
-                        .font(.title2.weight(.semibold))
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Library")
+                            .font(.title.weight(.bold))
+                        if totalVocabCount > 0 {
+                            Text("\(books.count) book\(books.count == 1 ? "" : "s") · \(totalVocabCount) words tracked")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
                     Spacer()
-                    Button(action: onVocabulary) {
-                        HStack(spacing: 4) {
-                            Image(systemName: "character.book.closed")
-                                .font(.system(size: 14))
-                            if totalVocabCount > 0 {
-                                Text("\(totalVocabCount)")
-                                    .font(.caption2.monospacedDigit())
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .help("Vocabulary")
-                    Button(action: onReview) {
-                        HStack(spacing: 5) {
-                            Image(systemName: "rectangle.stack")
-                                .font(.system(size: 14))
-                            if dueCardCount > 0 {
-                                Text("\(dueCardCount)")
-                                    .font(.caption2.monospacedDigit().bold())
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 5)
-                                    .padding(.vertical, 2)
-                                    .background(Color.red, in: Capsule())
-                            }
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .help("Review due cards")
                     Button("Import", action: onImport)
                         .buttonStyle(.borderedProminent)
                 }
@@ -141,7 +117,7 @@ private struct HoverableBookButton: View {
                     .lineLimit(3)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                Text(book.format == .pdf ? "PDF" : "EPUB")
+                Text(book.author.isEmpty ? book.format.rawValue.uppercased() : book.author)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }

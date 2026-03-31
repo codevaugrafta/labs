@@ -10,13 +10,14 @@ extension Notification.Name {
 
 struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.openWindow) private var openWindow
     @EnvironmentObject private var runtime: LeoRuntime
     @Query(sort: \Book.lastOpenedAt, order: .reverse) private var books: [Book]
+    @Query private var allSRSCards: [FSRSCard]
+    @Query private var allVocabEntries: [VocabularyEntry]
     @AppStorage("leo.readingTheme") private var theme: ReadingTheme = .light
-    /// When false (default), opening the app shows the cover grid; last-read book is still one tap via Continue.
+    /// When true, re-opens the last-read book in its own window on launch.
     @AppStorage("leo.resumeLastBookOnLaunch") private var resumeLastBookOnLaunch = false
-    @State private var columnVisibility: NavigationSplitViewVisibility = .detailOnly
-    @State private var selectedBook: Book?
     @State private var showAnkiImporter = false
     @State private var ankiImportMessage: String?
     @State private var showReview = false
@@ -26,102 +27,79 @@ struct ContentView: View {
     @State private var bookImportError: String?
     @State private var pdfPreparationTasks: [UUID: Task<Void, Never>] = [:]
     @State private var coverBackfillRunning = false
+    /// Tracks whether we have already opened the resume window this launch (prevents re-opening on subsequent @Query refreshes).
+    @State private var didAutoResumeOnLaunch = false
+    @State private var selectedBook: Book? = nil
 
     // MARK: - Theme
 
-    /// Books that could get a cover thumbnail but do not have one yet.
+    /// Books that could get a cover thumbnail but do not have one yet, OR whose cached cover file has gone missing or is corrupt.
     private var pendingCoverExtractionCount: Int {
-        books.filter { $0.coverImagePath == nil && epubPathForCover($0) != nil }.count
+        books.filter {
+            guard epubPathForCover($0) != nil else { return false }
+            guard let path = $0.coverImagePath else { return true }
+            if !FileManager.default.fileExists(atPath: path) { return true }
+            return !EPUBCoverExtractor.isValidImageFile(at: path)
+        }.count
+    }
+
+    private var dueSRSCount: Int {
+        let now = Date()
+        return allSRSCards.filter { $0.dueDate <= now }.count
     }
 
     private var themeBackground: Color { theme.leoContentBackground }
 
-    // MARK: - View Builder Sub-expressions
-
-    @ViewBuilder
-    private var sidebarContent: some View {
-        LibrarySidebar(
-            books: books,
-            selectedBook: $selectedBook,
-            onImport: presentBookImportPanel,
-            onReview: { showReview = true },
-            onVocabulary: { showVocabulary = true },
-            onStats: { showStats = true },
-            onDelete: deleteBook,
-            onPreparePDFBookView: { preparePDFBookViewIfNeeded($0, userInitiated: true) }
-        )
-        // Do not use `glassEffect` on the sidebar column: on macOS 26 it still composites as a circular /
-        // spotlight mask inside NavigationSplitView. System chrome already handles Liquid Glass; we only add
-        // a theme-tinted material (same on all macOS versions).
-        .background {
-            themeBackground.opacity(0.55)
-                .background(.ultraThinMaterial)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .animation(.easeInOut(duration: 0.3), value: theme)
-    }
-
     // MARK: - Body
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            sidebarContent
-                .navigationSplitViewColumnWidth(min: 180, ideal: 240, max: 320)
+        NavigationSplitView {
+            LibrarySidebar(
+                books: books,
+                selectedBook: Binding(
+                    get: { nil },
+                    set: { book in
+                        guard let book else { return }
+                        openWindow(value: book.id)
+                    }
+                ),
+                onImport: presentBookImportPanel,
+                onReview: { showReview = true },
+                onVocabulary: { showVocabulary = true },
+                onStats: { showStats = true },
+                onDelete: deleteBook,
+                onPreparePDFBookView: { preparePDFBookViewIfNeeded($0, userInitiated: true) }
+            )
+            .navigationSplitViewColumnWidth(min: 200, ideal: 220, max: 260)
         } detail: {
-            if let book = selectedBook {
-                ReaderView(
-                    book: book,
-                    librarySidebarRevealed: columnVisibility != .detailOnly,
-                    onPreparePDFBookView: { preparePDFBookViewIfNeeded($0) },
-                    onRetryPDFBookView: { preparePDFBookViewIfNeeded($0, forceRetry: true, userInitiated: true) }
-                )
-                .id(book.id) // Force fresh view when switching books
-                .ignoresSafeArea()
-            } else if books.isEmpty {
+            if books.isEmpty {
                 EmptyLibraryView(onImport: presentBookImportPanel)
+                    .background(themeBackground)
             } else {
                 LibraryBookPickerView(
                     books: books,
                     continueBook: preferredSelection,
                     themeBackground: themeBackground,
-                    onSelectBook: { selectedBook = $0 },
-                    onImport: presentBookImportPanel
+                    onSelectBook: { book in openWindow(value: book.id) },
+                    onImport: presentBookImportPanel,
+                    dueCardCount: dueSRSCount,
+                    totalVocabCount: allVocabEntries.filter({ $0.state != .unknown }).count
                 )
-                .ignoresSafeArea()
             }
         }
-        // `.prominentDetail` uses a floating, large-corner-radius column layout on recent macOS;
-        // after resize it leaves gaps and a “card” sidebar (see Leo UX feedback). Balanced is a
-        // standard split: columns stay flush to the window edges.
         .navigationSplitViewStyle(.balanced)
-        .toolbarVisibility(.hidden, for: .windowToolbar)
-        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
-        .accessibilityIdentifier("leo.root.split")
-        // ⌃⌘S: toggle library sidebar overlay
-        .onKeyPress(.init("s"), phases: .down) { press in
-            guard press.modifiers.contains(.control) && press.modifiers.contains(.command) else {
-                return .ignored
-            }
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
-            }
-            return .handled
-        }
-        // Hover on left 20px edge reveals the sidebar
-        .onContinuousHover { phase in
-            if case .active(let location) = phase, location.x < 20 {
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                    columnVisibility = .all
-                }
-            }
-        }
+        .accessibilityIdentifier("leo.library.root")
+        .frame(minWidth: 800, minHeight: 600)
+        // Bring this window to front when the reader's toolbar/FAB "Library" button is tapped.
         .onReceive(NotificationCenter.default.publisher(for: .leoShowLibrary)) { _ in
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
-            }
+            NSApp.activate(ignoringOtherApps: true)
         }
         .onReceive(NotificationCenter.default.publisher(for: .leoShowVocabulary)) { _ in
             showVocabulary = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .leoShowReview)) { _ in
+            NSApp.activate(ignoringOtherApps: true)
+            showReview = true
         }
         .fileImporter(
             isPresented: $showAnkiImporter,
@@ -130,7 +108,6 @@ struct ContentView: View {
         ) { result in
             handleAnkiImport(result)
         }
-        .frame(minWidth: 800, minHeight: 600)
         .sheet(isPresented: $showReview) {
             ReviewView()
                 .frame(minWidth: 500, minHeight: 450)
@@ -167,31 +144,33 @@ struct ContentView: View {
         }
         .onAppear {
             migrateLegacyPDFBooksIfNeeded()
-            syncSelectionWithLibrary()
-            preparePDFBookViewIfNeeded(selectedBook)
             kickCoverBackfillChain()
+            autoResumeLastBookIfNeeded()
         }
         .onChange(of: books.map(\.id)) { _, _ in
             migrateLegacyPDFBooksIfNeeded()
-            syncSelectionWithLibrary()
             kickCoverBackfillChain()
-        }
-        .onChange(of: selectedBook?.id) { _, _ in
-            preparePDFBookViewIfNeeded(selectedBook)
         }
         .modifier(ContentViewAlerts(
             ankiImportMessage: $ankiImportMessage,
             pdfConvertError: $pdfConvertError,
             bookImportError: $bookImportError
         ))
-        .background(MainWindowChromeConfigurator(librarySidebarRevealed: columnVisibility != .detailOnly))
+        .background(MainWindowChromeConfigurator(librarySidebarRevealed: true))
     }
 
-    /// `true` when UI tests import a book via `LEO_UI_TEST_BOOK_PATH` — they need a selected book without the picker.
-    private var hasEnvironmentUITestBookPath: Bool {
-        guard let raw = ProcessInfo.processInfo.environment["LEO_UI_TEST_BOOK_PATH"] else { return false }
-        return !raw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    // MARK: - Launch auto-resume
+
+    /// If `resumeLastBookOnLaunch` is on, open the most recently read book's reader window once per launch.
+    private func autoResumeLastBookIfNeeded() {
+        guard !didAutoResumeOnLaunch else { return }
+        guard resumeLastBookOnLaunch else { return }
+        guard let book = preferredSelection else { return }
+        didAutoResumeOnLaunch = true
+        openWindow(value: book.id)
     }
+
+    // MARK: - Anki import
 
     private func handleAnkiImport(_ result: Result<[URL], Error>) {
         let message: String
@@ -216,7 +195,10 @@ struct ContentView: View {
         NotificationCenter.default.post(name: .leoAnkiImportResult, object: message)
     }
 
-    /// UI tests only: `LEO_UI_TEST_BOOK_PATH` = absolute path to an EPUB/PDF to copy into the library and select (no file picker).
+    // MARK: - UI test helpers
+
+    /// UI tests only: `LEO_UI_TEST_BOOK_PATH` = absolute path to an EPUB/PDF to copy into the library and
+    /// open in a reader window (no file picker).
     @MainActor
     private func importEnvironmentTestBookIfNeeded() async {
         guard let raw = ProcessInfo.processInfo.environment["LEO_UI_TEST_BOOK_PATH"], !raw.isEmpty else { return }
@@ -227,8 +209,8 @@ struct ContentView: View {
         }
         let fileName = source.lastPathComponent
         if let existing = existingBook(matchingLibraryFilename: fileName) {
-            selectedBook = existing
             preparePDFBookViewIfNeeded(existing)
+            openWindow(value: existing.id)
             return
         }
         let destination = runtime.booksDirectory.appendingPathComponent(fileName)
@@ -251,11 +233,11 @@ struct ContentView: View {
         } catch {
             NSLog("[Leo] UI test: failed to save book '\(title)': \(error)")
         }
-        selectedBook = book
         if format == .epub {
             extractAndAssignCover(for: book)
         }
         preparePDFBookViewIfNeeded(book)
+        openWindow(value: book.id)
     }
 
     /// UI tests: ensure a due FSRS card so Review shows a real card (not empty state).
@@ -288,6 +270,8 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Import panel
+
     /// Uses `NSOpenPanel` so book import is reliable with a single SwiftUI `.fileImporter` (Anki) on this screen.
     private func presentBookImportPanel() {
         let panel = NSOpenPanel()
@@ -316,14 +300,13 @@ struct ContentView: View {
         // True duplicate: same filename and file still on disk for that book.
         if let existing = existingBook(matchingLibraryFilename: fileName) {
             if FileManager.default.fileExists(atPath: existing.filePath) {
-                selectedBook = existing
                 if existing.coverImagePath == nil {
                     extractAndAssignCover(for: existing)
                 }
                 preparePDFBookViewIfNeeded(existing)
+                openWindow(value: existing.id)
                 return
             }
-            if selectedBook?.id == existing.id { selectedBook = nil }
             modelContext.delete(existing)
             do { try modelContext.save() } catch {
                 bookImportError = "Could not clear stale book entry: \(error.localizedDescription)"
@@ -369,12 +352,14 @@ struct ContentView: View {
             bookImportError = "Could not save library: \(error.localizedDescription)"
             return
         }
-        selectedBook = book
         if format == .epub {
             extractAndAssignCover(for: book)
         }
         preparePDFBookViewIfNeeded(book)
+        openWindow(value: book.id)
     }
+
+    // MARK: - PDF preparation
 
     /// Reflows PDF text into a derived EPUB for Foliate (dictionary, FSRS, TTS) without replacing the source PDF.
     private func preparePDFBookViewIfNeeded(
@@ -496,6 +481,8 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - Delete
+
     private func deleteBook(_ book: Book) {
         let bookTitle = book.title
         pdfPreparationTasks[book.id]?.cancel()
@@ -524,10 +511,6 @@ struct ContentView: View {
                 NSLog("[Leo] Could not remove legacy original PDF for '\(bookTitle)': \(error)")
             }
         }
-        // Deselect if selected
-        if selectedBook == book {
-            selectedBook = remainingSelectionCandidate(afterDeleting: book)
-        }
         // Remove from database
         modelContext.delete(book)
         do {
@@ -537,23 +520,7 @@ struct ContentView: View {
         }
     }
 
-    private func syncSelectionWithLibrary() {
-        guard !books.isEmpty else {
-            selectedBook = nil
-            return
-        }
-
-        if let selectedBook,
-           books.contains(where: { $0.id == selectedBook.id }) {
-            return
-        }
-
-        if hasEnvironmentUITestBookPath || resumeLastBookOnLaunch {
-            selectedBook = preferredSelection
-        } else {
-            selectedBook = nil
-        }
-    }
+    // MARK: - Library helpers
 
     private func migrateLegacyPDFBooksIfNeeded() {
         var didMigrate = false
@@ -573,14 +540,6 @@ struct ContentView: View {
         books.max { lhs, rhs in
             effectiveOpenDate(for: lhs) < effectiveOpenDate(for: rhs)
         }
-    }
-
-    private func remainingSelectionCandidate(afterDeleting book: Book) -> Book? {
-        books
-            .filter { $0.id != book.id }
-            .max { lhs, rhs in
-                effectiveOpenDate(for: lhs) < effectiveOpenDate(for: rhs)
-            }
     }
 
     private func effectiveOpenDate(for book: Book) -> Date {
@@ -641,9 +600,18 @@ struct ContentView: View {
     }
 
     /// Runs EPUB extraction off the main actor so `unzip` + IO never blocks the UI; guards stale `Book` before saving.
+    /// Also handles the case where `coverImagePath` was set in a prior session but the file has since been deleted or is corrupt.
     private func extractAndAssignCoverOffMainThread(for book: Book) async {
         guard let epubPath = epubPathForCover(book) else { return }
-        guard book.coverImagePath == nil else { return }
+        // Allow re-extraction if the cached file no longer exists on disk or is not a valid image.
+        let needsExtraction: Bool
+        if let existingPath = book.coverImagePath {
+            needsExtraction = !FileManager.default.fileExists(atPath: existingPath)
+                || !EPUBCoverExtractor.isValidImageFile(at: existingPath)
+        } else {
+            needsExtraction = true
+        }
+        guard needsExtraction else { return }
         let bookID = book.id
         let coversDirectory = runtime.coversDirectory
         let newPath = await Task.detached(priority: .utility) {
@@ -654,8 +622,16 @@ struct ContentView: View {
             )
         }.value
         guard let newPath else { return }
-        guard let resolved = books.first(where: { $0.id == bookID }),
-              resolved.coverImagePath == nil else { return }
+        guard let resolved = books.first(where: { $0.id == bookID }) else { return }
+        // Re-check on main actor: skip only if the file is now present and valid (a concurrent extraction may have won).
+        let stillNeeded: Bool
+        if let currentPath = resolved.coverImagePath {
+            stillNeeded = !FileManager.default.fileExists(atPath: currentPath)
+                || !EPUBCoverExtractor.isValidImageFile(at: currentPath)
+        } else {
+            stillNeeded = true
+        }
+        guard stillNeeded else { return }
         applyExtractedCoverPath(newPath, for: resolved)
     }
 
@@ -664,7 +640,12 @@ struct ContentView: View {
         guard !coverBackfillRunning else { return }
         guard pendingCoverExtractionCount > 0 else { return }
         coverBackfillRunning = true
-        let snapshot = books.filter { $0.coverImagePath == nil && epubPathForCover($0) != nil }
+        let snapshot = books.filter {
+            guard epubPathForCover($0) != nil else { return false }
+            guard let path = $0.coverImagePath else { return true }
+            if !FileManager.default.fileExists(atPath: path) { return true }
+            return !EPUBCoverExtractor.isValidImageFile(at: path)
+        }
         Task { @MainActor in
             defer { coverBackfillRunning = false }
             for book in snapshot {
@@ -769,7 +750,7 @@ struct LibrarySidebar: View {
                             Label("Vocabulary", systemImage: "character.book.closed")
                             Spacer()
                         }
-                        Text("\(vocabulary.count) words · \(dueCardCount) due")
+                        Text("\(vocabulary.filter({ $0.state != .unknown }).count) words · \(dueCardCount) due")
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                     }
@@ -826,15 +807,6 @@ struct LibrarySidebar: View {
         .listStyle(.sidebar)
         .scrollContentBackground(.hidden)
         .accessibilityIdentifier("leo.library.sidebar")
-        .toolbar {
-            ToolbarItem {
-                Button(action: onImport) {
-                    Image(systemName: "plus")
-                }
-                .accessibilityIdentifier("leo.sidebar.importToolbar")
-                .help("Import Book (Cmd+O)")
-            }
-        }
         .navigationTitle(Bundle.main.leoComposerSidebarTitle)
     }
 
@@ -851,7 +823,7 @@ struct LibrarySidebar: View {
 }
 
 private struct LibraryBookRow: View {
-    let book: Book
+    @Bindable var book: Book
     let metadataLine: String
     let isSelected: Bool
 
@@ -906,20 +878,75 @@ struct EmptyLibraryView: View {
     let onImport: () -> Void
 
     var body: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "book.closed")
-                .font(.system(size: 48))
-                .foregroundStyle(.tertiary)
-            Text("Open a book to start reading")
-                .font(.title3)
-                .foregroundStyle(.secondary)
-            Button("Import Book") {
-                onImport()
+        VStack(spacing: 0) {
+            Spacer()
+            VStack(spacing: 24) {
+                // Icon
+                Image(systemName: "books.vertical")
+                    .font(.system(size: 52, weight: .light))
+                    .foregroundStyle(.tertiary)
+
+                // Title + subtitle
+                VStack(spacing: 8) {
+                    Text("Your library is empty")
+                        .font(.title2.weight(.semibold))
+                    Text("Import an EPUB or PDF to start reading in Chinese")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+
+                Button("Import Book…", action: onImport)
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .keyboardShortcut("o", modifiers: .command)
+                    .accessibilityIdentifier("leo.library.import")
+
+                // Curated suggestion
+                VStack(spacing: 10) {
+                    Text("Looking for a starting point?")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    HStack(spacing: 12) {
+                        ForEach(EmptyLibraryView.suggestions, id: \.title) { book in
+                            BookSuggestionChip(title: book.title, author: book.author, level: book.level)
+                        }
+                    }
+                }
+                .padding(.top, 8)
             }
-            .accessibilityIdentifier("leo.library.import")
-            .buttonStyle(.borderedProminent)
-            .keyboardShortcut("o", modifiers: .command)
+            .padding(40)
+            Spacer()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("leo.library.empty")
+    }
+
+    private static let suggestions: [(title: String, author: String, level: String)] = [
+        (title: "活着", author: "余华", level: "Intermediate"),
+        (title: "骆驼祥子", author: "老舍", level: "Intermediate"),
+        (title: "边城", author: "沈从文", level: "Advanced"),
+    ]
+}
+
+private struct BookSuggestionChip: View {
+    let title: String
+    let author: String
+    let level: String
+
+    var body: some View {
+        VStack(spacing: 3) {
+            Text(title)
+                .font(.system(size: 15, weight: .medium, design: .serif))
+            Text(author)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(level)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .background(Color.primary.opacity(0.04), in: RoundedRectangle(cornerRadius: 10))
     }
 }

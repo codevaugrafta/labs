@@ -155,6 +155,7 @@ enum EPUBCoverExtractor {
         guard let manifest = childElements(localName: "manifest", under: root).first else { return nil }
         let manifestItems = childElements(localName: "item", under: manifest)
 
+        // Strategy 1: properties="cover-image" (EPUB 3)
         for item in manifestItems {
             guard let props = item.attribute(forName: "properties")?.stringValue else { continue }
             if propertyTokens(props).contains("cover-image"),
@@ -163,6 +164,7 @@ enum EPUBCoverExtractor {
             }
         }
 
+        // Strategy 2: <meta name="cover" content="itemID"/> (EPUB 2)
         if let metadata = childElements(localName: "metadata", under: root).first {
             for meta in childElements(localName: "meta", under: metadata) {
                 guard meta.attribute(forName: "name")?.stringValue == "cover" else { continue }
@@ -175,16 +177,59 @@ enum EPUBCoverExtractor {
             }
         }
 
-        if let guide = childElements(localName: "guide", under: root).first {
-            for ref in childElements(localName: "reference", under: guide) {
-                guard ref.attribute(forName: "type")?.stringValue == "cover" else { continue }
-                if let href = ref.attribute(forName: "href")?.stringValue {
+        // Strategy 3: manifest item with media-type starting with "image/" AND id or href containing "cover" (Chinese EPUBs)
+        for item in manifestItems {
+            guard let mediaType = item.attribute(forName: "media-type")?.stringValue,
+                  mediaType.lowercased().hasPrefix("image/") else { continue }
+            let itemID = item.attribute(forName: "id")?.stringValue?.lowercased() ?? ""
+            let itemHref = item.attribute(forName: "href")?.stringValue?.lowercased() ?? ""
+            if itemID.contains("cover") || itemHref.contains("cover") {
+                if let href = item.attribute(forName: "href")?.stringValue {
                     return normalizedZipEntryPath(opfPath: opfZipPath, href: href)
                 }
             }
         }
 
+        // Strategy 4: <guide><reference type="cover"/> — only if href has an allowed image extension
+        if let guide = childElements(localName: "guide", under: root).first {
+            for ref in childElements(localName: "reference", under: guide) {
+                guard ref.attribute(forName: "type")?.stringValue == "cover" else { continue }
+                if let href = ref.attribute(forName: "href")?.stringValue {
+                    let ext = (href as NSString).pathExtension.lowercased()
+                    guard allowedImageExtension(ext) else { continue }
+                    return normalizedZipEntryPath(opfPath: opfZipPath, href: href)
+                }
+            }
+        }
+
+        // Strategy 5: first manifest item with media-type "image/*" and an allowed image extension
+        for item in manifestItems {
+            guard let mediaType = item.attribute(forName: "media-type")?.stringValue,
+                  mediaType.lowercased().hasPrefix("image/"),
+                  let href = item.attribute(forName: "href")?.stringValue else { continue }
+            let ext = (href as NSString).pathExtension.lowercased()
+            if allowedImageExtension(ext) {
+                return normalizedZipEntryPath(opfPath: opfZipPath, href: href)
+            }
+        }
+
         return nil
+    }
+
+    /// Returns `true` if the file at `path` begins with valid JPEG, PNG, or WEBP magic bytes.
+    static func isValidImageFile(at path: String) -> Bool {
+        guard let handle = FileHandle(forReadingAtPath: path) else { return false }
+        defer { try? handle.close() }
+        guard let bytes = try? handle.read(upToCount: 12), bytes.count >= 8 else { return false }
+        // JPEG: FF D8 FF
+        if bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF { return true }
+        // PNG: 89 50 4E 47
+        if bytes[0] == 0x89 && bytes[1] == 0x50 && bytes[2] == 0x4E && bytes[3] == 0x47 { return true }
+        // WEBP: RIFF????WEBP — bytes 0-3 = "RIFF", bytes 8-11 = "WEBP"
+        if bytes.count >= 12,
+           bytes[0] == 0x52 && bytes[1] == 0x49 && bytes[2] == 0x46 && bytes[3] == 0x46,
+           bytes[8] == 0x57 && bytes[9] == 0x45 && bytes[10] == 0x42 && bytes[11] == 0x50 { return true }
+        return false
     }
 
     private static func childElements(localName: String, under parent: XMLElement) -> [XMLElement] {
