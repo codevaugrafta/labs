@@ -181,7 +181,7 @@ struct FloatingDictionaryContent: View {
                         onFamiliarityChange(.learning)
                     })
                 } else {
-                    CleanActionButton(label: "Tracked", icon: "bookmark.fill", disabled: false, accentColor: Color.purple, action: {})
+                    CleanActionButton(label: "Tracked", icon: "bookmark.fill", disabled: false, accentColor: Color.purple, symbolBounce: true, action: {})
                 }
 
                 if data.alreadyInReview {
@@ -319,6 +319,7 @@ private struct CleanActionButton: View {
     let icon: String
     let disabled: Bool
     var accentColor: Color? = nil
+    var symbolBounce: Bool = false
     let action: () -> Void
 
     var body: some View {
@@ -326,6 +327,7 @@ private struct CleanActionButton: View {
             HStack(spacing: 4) {
                 Image(systemName: icon)
                     .font(.system(size: 10, weight: .medium))
+                    .symbolEffect(.bounce, value: symbolBounce)
                 Text(label)
                     .font(.system(size: 11, weight: .medium))
             }

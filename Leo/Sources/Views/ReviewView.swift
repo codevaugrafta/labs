@@ -19,6 +19,7 @@ struct ReviewView: View {
                 cardView
             }
         }
+        .animation(.spring(duration: 0.4, bounce: 0.2), value: sessionComplete)
         .accessibilityIdentifier("leo.review.root")
         .frame(minWidth: 500, minHeight: 400)
         .task {
@@ -238,10 +239,12 @@ struct ReviewView: View {
     private var reviewCompleteView: some View {
         VStack(spacing: 16) {
             Image(systemName: "checkmark.seal.fill")
-                .font(.system(size: 48))
+                .font(.system(size: 56))
                 .foregroundStyle(.green)
+                .symbolEffect(.bounce, value: sessionComplete)
+                .padding(.bottom, 4)
             Text("All caught up!")
-                .font(.title2.weight(.medium))
+                .font(.title2.weight(.semibold))
             if reviewedCount > 0 {
                 Text("Reviewed \(reviewedCount) card\(reviewedCount == 1 ? "" : "s") this session.")
                     .foregroundStyle(.secondary)
@@ -255,8 +258,11 @@ struct ReviewView: View {
             Button("Refresh") {
                 loadDueCards()
             }
+            .padding(.top, 4)
         }
-        .accessibilityIdentifier("leo.review.root")
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .transition(.scale(scale: 0.85).combined(with: .opacity))
+        .accessibilityIdentifier("leo.review.complete")
         .accessibilityElement(children: .contain)
     }
 
