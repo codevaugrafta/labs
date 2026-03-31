@@ -5,7 +5,8 @@ import SwiftData
 struct ReviewView: View {
     @Environment(\.modelContext) private var modelContext
     @State private var dueCards: [FSRSCard] = []
-    @State private var showAnswer = false
+    @State private var isShowingBack = false
+    @State private var cardRotation: Double = 0
     @State private var sessionComplete = false
     @State private var reviewedCount = 0
     @State private var sessionTargetCount = 0
@@ -67,197 +68,169 @@ struct ReviewView: View {
 
             Spacer()
 
-            // MARK: Card front — sentence context or bare word
-            if let sentence = card.contextSentence, !sentence.isEmpty {
-                // Show the sentence with the target word highlighted as the recall cue
-                Text(highlightedSentence(sentence: sentence, word: card.word))
-                    .font(.system(size: 20, weight: .regular))
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 420)
-                    .padding(.horizontal)
-            } else {
-                // Fallback: bare word
-                Text(card.word)
-                    .font(.system(size: 48, weight: .medium))
-            }
-
-            if showAnswer {
-                // Word (always shown on the answer side when context was the cue)
-                if card.contextSentence != nil {
-                    Text(card.word)
-                        .font(.system(size: 36, weight: .bold))
-                        .padding(.top, 4)
-                }
-
-                // Pinyin
-                if let entry = entries.first {
-                    Text(entry.pinyinDisplay)
-                        .font(.title2)
-                        .foregroundStyle(.orange)
-                }
-
-                // Frequency
-                HStack(spacing: 8) {
-                    Text("Frequency")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                    Text(freq.tier.rawValue)
-                        .font(.caption)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(Color(hex: freq.tier.color).opacity(0.2))
-                        .foregroundStyle(Color(hex: freq.tier.color))
-                        .clipShape(Capsule())
-                }
-
-                // Contextual definition (AI-generated)
-                if let contextDef = card.contextualDefinition {
-                    Text(contextDef)
-                        .font(.system(size: 15, weight: .medium))
-                        .foregroundStyle(.blue)
+            // MARK: Flippable card content
+            VStack(spacing: 24) {
+                // Card front — sentence context or bare word (always visible)
+                if let sentence = card.contextSentence, !sentence.isEmpty {
+                    Text(highlightedSentence(sentence: sentence, word: card.word))
+                        .font(.system(size: 20, weight: .regular))
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 420)
                         .padding(.horizontal)
+                } else {
+                    Text(card.word)
+                        .font(.system(size: 48, weight: .medium))
                 }
 
-                // Book sentence — context the word was encountered in
-                if let sentence = card.contextSentence, !sentence.isEmpty {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("From book:")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                        Text(highlightedSentence(sentence: sentence, word: card.word))
-                            .font(.system(size: 15))
-                            .multilineTextAlignment(.leading)
+                if isShowingBack {
+                    // Word (always shown on the answer side when context was the cue)
+                    if card.contextSentence != nil {
+                        Text(card.word)
+                            .font(.system(size: 36, weight: .bold))
+                            .padding(.top, 4)
                     }
-                    .frame(maxWidth: 420, alignment: .leading)
-                    .padding(.horizontal)
-                }
 
-                // Lemma example sentence (AI-generated)
-                if let example = card.lemmaExampleSentence, !example.isEmpty {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Example:")
-                            .font(.system(size: 11, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                        Text(example)
-                            .font(.system(size: 15))
-                            .foregroundStyle(.primary)
-                            .multilineTextAlignment(.leading)
+                    // Pinyin
+                    if let entry = entries.first {
+                        Text(entry.pinyinDisplay)
+                            .font(.title2)
+                            .foregroundStyle(.orange)
                     }
-                    .frame(maxWidth: 420, alignment: .leading)
-                    .padding(.horizontal)
-                }
 
-                // Definitions
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(Array(entries.prefix(2).enumerated()), id: \.offset) { _, entry in
-                        ForEach(Array(entry.definitions.prefix(3).enumerated()), id: \.offset) { idx, def in
-                            Text("\(idx + 1). \(def)")
-                                .font(.body)
+                    // Frequency
+                    HStack(spacing: 8) {
+                        Text("Frequency")
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Text(freq.tier.rawValue)
+                            .font(.caption)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 3)
+                            .background(Color(hex: freq.tier.color).opacity(0.2))
+                            .foregroundStyle(Color(hex: freq.tier.color))
+                            .clipShape(Capsule())
+                    }
+
+                    // Contextual definition (AI-generated)
+                    if let contextDef = card.contextualDefinition {
+                        Text(contextDef)
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(.blue)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: 420)
+                            .padding(.horizontal)
+                    }
+
+                    // Book sentence — context the word was encountered in
+                    if let sentence = card.contextSentence, !sentence.isEmpty {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("From book:")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                            Text(highlightedSentence(sentence: sentence, word: card.word, size: 15))
+                                .font(.system(size: 15))
+                                .multilineTextAlignment(.leading)
+                        }
+                        .frame(maxWidth: 420, alignment: .leading)
+                        .padding(.horizontal)
+                    }
+
+                    // Lemma example sentence (AI-generated) — word highlighted for visual anchoring
+                    if let example = card.lemmaExampleSentence, !example.isEmpty {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("Example:")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                            Text(highlightedSentence(sentence: example, word: card.word, size: 15))
+                                .font(.system(size: 15))
+                                .multilineTextAlignment(.leading)
+                        }
+                        .frame(maxWidth: 420, alignment: .leading)
+                        .padding(.horizontal)
+                    }
+
+                    // Definitions
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(Array(entries.prefix(2).enumerated()), id: \.offset) { _, entry in
+                            ForEach(Array(entry.definitions.prefix(3).enumerated()), id: \.offset) { idx, def in
+                                Text("\(idx + 1). \(def)")
+                                    .font(.body)
+                            }
                         }
                     }
-                }
-                .frame(maxWidth: 400, alignment: .leading)
-                .padding()
+                    .frame(maxWidth: 400, alignment: .leading)
+                    .padding()
 
-                Spacer()
+                    Spacer()
 
-                Text("Rate with 1, 2, 3, or 4")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-
-                // Rating buttons
-                HStack(spacing: 16) {
-                    ratingButton("Again", color: .red, rating: .again)
-                    ratingButton("Hard", color: .orange, rating: .hard)
-                    ratingButton("Good", color: .green, rating: .good)
-                    ratingButton("Easy", color: .blue, rating: .easy)
-                }
-                .padding(.bottom, 24)
-            } else {
-                Spacer()
-
-                VStack(spacing: 8) {
-                    Button("Show Answer") {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.75)) {
-                            showAnswer = true
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .keyboardShortcut(.space, modifiers: [])
-                    .accessibilityLabel("Show Answer")
-                    .accessibilityValue("Shortcut Space")
-                    .accessibilityIdentifier("leo.review.showAnswer")
-
-                    Text("Press Space to reveal the answer")
+                    Text("Rate with 1, 2, 3, or 4")
                         .font(.caption)
                         .foregroundStyle(.secondary)
+
+                    // Rating buttons
+                    HStack(spacing: 16) {
+                        RatingButton(label: "Again", color: .red, rating: .again, keyHint: "1", keyEquivalent: "1") { rate(.again) }
+                        RatingButton(label: "Hard", color: .orange, rating: .hard, keyHint: "2", keyEquivalent: "2") { rate(.hard) }
+                        RatingButton(label: "Good", color: .green, rating: .good, keyHint: "3", keyEquivalent: "3") { rate(.good) }
+                        RatingButton(label: "Easy", color: .blue, rating: .easy, keyHint: "4", keyEquivalent: "4") { rate(.easy) }
+                    }
+                    .padding(.bottom, 24)
+                } else {
+                    Spacer()
+
+                    VStack(spacing: 8) {
+                        Button("Show Answer") {
+                            withAnimation(.easeIn(duration: 0.15)) {
+                                cardRotation = 90
+                            }
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                isShowingBack = true
+                                LeoHaptics.tick()
+                                withAnimation(.easeOut(duration: 0.15)) {
+                                    cardRotation = 0
+                                }
+                            }
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .keyboardShortcut(.space, modifiers: [])
+                        .accessibilityLabel("Show Answer")
+                        .accessibilityValue("Shortcut Space")
+                        .accessibilityIdentifier("leo.review.showAnswer")
+
+                        Text("Press Space to reveal the answer")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.bottom, 24)
                 }
-                .padding(.bottom, 24)
             }
+            .rotation3DEffect(.degrees(cardRotation), axis: (x: 0, y: 1, z: 0))
         }
         .padding()
         .accessibilityIdentifier("leo.review.root")
         .accessibilityElement(children: .contain)
     }
 
-    /// Returns an `AttributedString` with the target `word` bolded and tinted in accent color
-    /// within the full `sentence`. Falls back to plain sentence text if the word is not found.
-    private func highlightedSentence(sentence: String, word: String) -> AttributedString {
+    /// Returns an `AttributedString` with ALL occurrences of `word` bolded and tinted in accent
+    /// color within `sentence`. `size` controls the bold font size (default 20 for the card front,
+    /// pass the parent text size for answer sections to avoid mismatched rendering).
+    private func highlightedSentence(sentence: String, word: String, size: CGFloat = 20) -> AttributedString {
         var attributed = AttributedString(sentence)
+        guard !word.isEmpty else { return attributed }
 
-        guard !word.isEmpty,
-              let range = sentence.range(of: word) else {
-            return attributed
-        }
-
-        // Map String.Index range to AttributedString.Index range
-        let start = AttributedString.Index(range.lowerBound, within: attributed)
-        let end = AttributedString.Index(range.upperBound, within: attributed)
-
-        if let start, let end, start < end {
-            attributed[start..<end].font = .system(size: 20, weight: .bold)
-            attributed[start..<end].foregroundColor = .accentColor
+        var searchStart = sentence.startIndex
+        while searchStart < sentence.endIndex,
+              let range = sentence.range(of: word, range: searchStart..<sentence.endIndex) {
+            if let attrStart = AttributedString.Index(range.lowerBound, within: attributed),
+               let attrEnd = AttributedString.Index(range.upperBound, within: attributed),
+               attrStart < attrEnd {
+                attributed[attrStart..<attrEnd].font = .system(size: size, weight: .bold)
+                attributed[attrStart..<attrEnd].foregroundColor = .accentColor
+            }
+            searchStart = range.upperBound
         }
 
         return attributed
-    }
-
-    private func ratingButton(_ label: String, color: Color, rating: Rating) -> some View {
-        Button(action: { rate(rating) }) {
-            VStack(spacing: 2) {
-                Text(label)
-                Text(keyHint(for: rating))
-                    .font(.system(.caption2, design: .monospaced))
-                    .foregroundStyle(.secondary)
-            }
-            .frame(width: 78)
-        }
-        .buttonStyle(.bordered)
-        .tint(color)
-        .keyboardShortcut(keyForRating(rating), modifiers: [])
-        .accessibilityLabel(label)
-        .accessibilityValue("Shortcut \(keyHint(for: rating))")
-        .accessibilityIdentifier(rating == .good ? "leo.review.rate.good" : "leo.review.rate.\(label.lowercased())")
-    }
-
-    private func keyForRating(_ rating: Rating) -> KeyEquivalent {
-        switch rating {
-        case .again: "1"
-        case .hard: "2"
-        case .good: "3"
-        case .easy: "4"
-        }
-    }
-
-    private func keyHint(for rating: Rating) -> String {
-        switch rating {
-        case .again: "1"
-        case .hard: "2"
-        case .good: "3"
-        case .easy: "4"
-        }
     }
 
     // MARK: - Review Complete
@@ -295,14 +268,15 @@ struct ReviewView: View {
         fsrs.review(card: card, rating: rating)
 
         reviewedCount += 1
-        showAnswer = false
+        isShowingBack = false
+        cardRotation = 0
         loadDueCards(preservingSessionCounts: true)
     }
 
     private func loadDueCards(preservingSessionCounts: Bool = false) {
         let fsrs = FSRSEngine(modelContext: modelContext)
         dueCards = fsrs.dueCards()
-        showAnswer = false
+        isShowingBack = false
         sessionComplete = dueCards.isEmpty
 
         if preservingSessionCounts {
@@ -312,5 +286,46 @@ struct ReviewView: View {
             reviewedCount = 0
             sessionTargetCount = dueCards.count
         }
+    }
+}
+
+// MARK: - Rating Button
+
+private struct RatingButton: View {
+    let label: String
+    let color: Color
+    let rating: Rating
+    let keyHint: String
+    let keyEquivalent: KeyEquivalent
+    let onRate: () -> Void
+
+    @State private var isPressed = false
+
+    var body: some View {
+        Button(action: {
+            withAnimation(.spring(duration: 0.12, bounce: 0)) { isPressed = true }
+            LeoHaptics.tick()
+            onRate()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                withAnimation(.spring(duration: 0.2)) { isPressed = false }
+            }
+        }) {
+            VStack(spacing: 2) {
+                Text(label)
+                Text(keyHint)
+                    .font(.system(.caption2, design: .monospaced))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(width: 78)
+            .background(
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(color.opacity(isPressed ? 0.18 : 0))
+            )
+        }
+        .buttonStyle(.bordered)
+        .tint(color)
+        .keyboardShortcut(keyEquivalent, modifiers: [])
+        .accessibilityLabel(label)
+        .accessibilityIdentifier("leo.review.rate.\(label.lowercased())")
     }
 }

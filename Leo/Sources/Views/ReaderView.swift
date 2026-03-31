@@ -1,4 +1,5 @@
 import AppKit
+import SwiftData
 import SwiftUI
 import WebKit
 
@@ -18,14 +19,35 @@ struct ReaderView: View {
     @State private var readerFailureMessage: String?
     @State private var familiarityTracker: FamiliarityTracker?
     @State private var lastReadAloudSnippet: String = ""
+    @State private var selectionForReadAloud: String = ""
     @StateObject private var sessionEngine = ReadingSessionEngine()
     @StateObject private var ttsEngine = TTSEngine()
     @Environment(\.modelContext) private var modelContext
     @EnvironmentObject private var runtime: LeoRuntime
+    @Query private var allVocab: [VocabularyEntry]
+
+    private var trackedVocabMap: [String: String] {
+        allVocab
+            .filter { $0.state != .unknown }
+            .reduce(into: [String: String]()) { acc, entry in
+                acc[entry.text] = entry.state.label.lowercased()
+            }
+    }
+
+    /// Pinyin map for ruby annotations: only seen/learning/familiar words with non-empty pinyin.
+    /// Excludes .unknown (not yet tracked) and .known (user already knows them).
+    private var pinyinMap: [String: String] {
+        allVocab
+            .filter { $0.state != .unknown && $0.state != .known && !$0.pinyin.isEmpty }
+            .reduce(into: [String: String]()) { acc, entry in
+                acc[entry.text] = entry.pinyin
+            }
+    }
 
     @AppStorage("leo.fontSize") private var readingFontSize = 18.0
     @AppStorage("leo.lineHeight") private var readingLineHeight = 1.7
     @AppStorage("leo.showHighlights") private var readingShowHighlights = true
+    @AppStorage("leo.showPinyin") private var readingShowPinyin = false
     /// Global shortcut / menu target for toggling pinyin visibility in the word lookup panel.
     @AppStorage("leo.lookupShowPinyin") private var lookupShowPinyinForHotkey = true
     @AppStorage("leo.textDirection") private var readingTextDirection = "horizontal"
@@ -76,20 +98,10 @@ struct ReaderView: View {
                 fitPolicy: pdfFitPolicy,
                 onPageChanged: persistPDFPage
             )
-            .overlay(alignment: .bottom) {
+            .overlay(alignment: .top) {
                 if book.pdfPreparationStatus == .preparing {
-                    HStack(spacing: 8) {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("Preparing Book View…")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 8)
-                    .background(.regularMaterial, in: Capsule())
-                    .padding(.bottom, 20)
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                    IndeterminateProgressBar()
+                        .transition(.opacity)
                 }
             }
             .animation(.easeInOut(duration: 0.3), value: book.pdfPreparationStatus == .preparing)
@@ -109,6 +121,7 @@ struct ReaderView: View {
                     lineHeight: readingLineHeight,
                     textDirection: readingTextDirection,
                     showHighlights: readingShowHighlights,
+                    showPinyin: readingShowPinyin,
                     pageStyle: readingPageStyle,
                     spreadMode: readingSpreadMode
                 ),
@@ -129,7 +142,12 @@ struct ReaderView: View {
                 },
                 onCoordinatorReady: { coord in
                     coordinatorBridge.coordinator = coord
-                }
+                },
+                onSelectionChange: { text in
+                    selectionForReadAloud = text
+                },
+                trackedVocab: trackedVocabMap,
+                pinyinMap: pinyinMap
             )
         } else {
             ReaderFailureView(
@@ -244,77 +262,7 @@ struct ReaderView: View {
         }
     }
 
-    @ViewBuilder
-    private var floatingToolbar: some View {
-        if chromeVisible, !librarySidebarRevealed {
-            HStack(spacing: 28) {
-                Spacer(minLength: 0)
-
-                if usesFoliateReader {
-                    Button {
-                        showReadingPrefsFromFAB = false
-                        showReadingPrefsFromToolbar.toggle()
-                    } label: {
-                        Text("Aa")
-                            .font(.system(size: 15, weight: .medium, design: .serif))
-                            .frame(minWidth: 36, minHeight: 32)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("leo.toolbar.readingLayout")
-                    .popover(
-                        isPresented: $showReadingPrefsFromToolbar,
-                        attachmentAnchor: .rect(.bounds),
-                        arrowEdge: .bottom
-                    ) {
-                        readingChromePreferencesForm
-                    }
-
-                    Button {
-                        coordinatorBridge.coordinator?.requestTOC()
-                        showTOCPanel.toggle()
-                    } label: {
-                        Image(systemName: "list.bullet")
-                            .font(.system(size: 15))
-                            .frame(minWidth: 36, minHeight: 32)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("leo.toolbar.toc")
-                    .popover(isPresented: $showTOCPanel, arrowEdge: .bottom) {
-                        TOCPanelView(items: tocItems) { href in
-                            showTOCPanel = false
-                            coordinatorBridge.coordinator?.goToTocItem(href)
-                        }
-                    }
-                }
-
-                overflowMenu
-                    .padding(.leading, 4)
-            }
-            .padding(.leading, 20)
-            .padding(.trailing, 16)
-            .padding(.vertical, 10)
-            .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 10))
-            .shadow(color: .black.opacity(0.08), radius: 12, y: 4)
-            .padding(.top, 28)
-            .padding(.horizontal, 28)
-            .onHover { hovering in
-                if hovering {
-                    chromeHideTimer?.invalidate()
-                    chromeHideTimer = nil
-                } else {
-                    resetChromeTimer()
-                }
-            }
-            .transition(.move(edge: .top).combined(with: .opacity))
-            .zIndex(15_000)
-        }
-    }
-
-    /// Reading chrome controls shown from the **Aa** toolbar button and the FAB (each has its own anchored `popover`).
+    /// Reading chrome controls shown from the FAB (anchored `popover`).
     @ViewBuilder
     private var readingChromePreferencesForm: some View {
         ReadingPreferencesForm(
@@ -323,6 +271,7 @@ struct ReaderView: View {
             lineHeight: $readingLineHeight,
             textDirection: $readingTextDirection,
             showHighlights: $readingShowHighlights,
+            showPinyin: $readingShowPinyin,
             pageStyle: $readingPageStyle,
             spreadMode: $readingSpreadMode,
             onOpenFullSettings: {
@@ -392,34 +341,66 @@ struct ReaderView: View {
 
     @ViewBuilder
     private var floatingActionButtons: some View {
-        if chromeVisible {
-            FloatingActionButtons(
-                onLibrary: {
-                    NotificationCenter.default.post(name: .leoShowLibrary, object: nil)
-                },
-                onVocabulary: {
-                    NotificationCenter.default.post(name: .leoShowVocabulary, object: nil)
-                },
-                onToggleReadingPrefs: {
-                    showReadingPrefsFromToolbar = false
-                    showReadingPrefsFromFAB.toggle()
-                },
-                isReadingPrefsPresented: $showReadingPrefsFromFAB
-            ) {
-                readingChromePreferencesForm
+        FloatingActionButtons(
+            chromeVisible: chromeVisible,
+            onLibrary: {
+                NotificationCenter.default.post(name: .leoShowLibrary, object: nil)
+            },
+            onVocabulary: {
+                NotificationCenter.default.post(name: .leoShowVocabulary, object: nil)
+            },
+            onReview: {
+                NotificationCenter.default.post(name: .leoShowReview, object: nil)
+            },
+            onToggleReadingPrefs: {
+                showReadingPrefsFromToolbar = false
+                showReadingPrefsFromFAB.toggle()
+            },
+            isReadingPrefsPresented: $showReadingPrefsFromFAB
+        ) {
+            readingChromePreferencesForm
+        }
+        .padding(.trailing, 20)
+        .allowsHitTesting(chromeVisible)
+        .onHover { hovering in
+            if hovering {
+                chromeHideTimer?.invalidate()
+                chromeHideTimer = nil
+            } else {
+                resetChromeTimer()
             }
-            .padding(.trailing, 20)
-            .padding(.bottom, 20)
-            .onHover { hovering in
-                if hovering {
-                    chromeHideTimer?.invalidate()
-                    chromeHideTimer = nil
-                } else {
-                    resetChromeTimer()
+        }
+        .zIndex(14_000)
+    }
+
+    // MARK: - Read Aloud Selection Chip
+
+    /// Floating chip that appears when the user selects text in the EPUB reader.
+    /// Tapping it reads the selected text aloud via TTSEngine and clears the chip.
+    @ViewBuilder
+    private var readAloudSelectionChip: some View {
+        if !selectionForReadAloud.isEmpty {
+            Button {
+                let captured = selectionForReadAloud
+                selectionForReadAloud = ""
+                Task { await playReadAloudTTS(text: captured) }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 11))
+                    Text("Read aloud")
+                        .font(.system(size: 12, weight: .medium))
                 }
+                .foregroundStyle(.primary)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+                .background(.thinMaterial, in: Capsule())
+                .shadow(color: .black.opacity(0.10), radius: 6, y: 2)
             }
-            .transition(.opacity.combined(with: .scale(scale: 0.85, anchor: .bottomTrailing)))
-            .zIndex(14_000)
+            .buttonStyle(.plain)
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .padding(.bottom, 32)
+            .zIndex(16_000)
         }
     }
 
@@ -449,23 +430,21 @@ struct ReaderView: View {
         .overlay(alignment: .topLeading) { uiTestProbes }
         .overlay(alignment: .top) { searchBarOverlay }
         .animation(.spring(duration: 0.35, bounce: 0.15), value: showSearchBar)
-        .overlay(alignment: .top) { floatingToolbar }
-        .overlay(alignment: .bottomTrailing) { floatingActionButtons }
+        .overlay(alignment: .trailing) { floatingActionButtons }
+        .overlay(alignment: .bottom) { readAloudSelectionChip }
+        .animation(.spring(duration: 0.3, bounce: 0.1), value: selectionForReadAloud.isEmpty)
         .animation(.easeInOut(duration: 0.2), value: chromeVisible)
         .toolbarVisibility(.hidden, for: .windowToolbar)
         .onContinuousHover { phase in
             switch phase {
-            case .active(let location):
-                // Show chrome when mouse is near the top 60px (toolbar zone)
-                if location.y < 60 {
-                    withAnimation { chromeVisible = true }
-                    resetChromeTimer()
-                }
+            case .active:
+                // Show chrome on any mouse movement over the reader
+                if !chromeVisible { withAnimation { chromeVisible = true } }
+                resetChromeTimer()
             case .ended:
                 resetChromeTimer()
             }
         }
-        .toolbarVisibility(.hidden, for: .windowToolbar)
         .onAppear {
             if readingSpreadMode == "auto" { readingSpreadMode = "both" }
             resetChromeTimer()
@@ -594,26 +573,33 @@ struct ReaderView: View {
     }
 
     // Called by the coordinator when the reader bridge reports a tap.
-    // Use the same expression resolution path as the floating panel so
-    // familiarity and review state track the unit the user actually sees.
+    // Vocabulary is only recorded on explicit user action (markKnown / addToSRS / setFamiliarity)
+    // via handlePopupAction — NOT on every tap, so browsing the dictionary never auto-adds words.
     private func handleWordTap(_ char: String, context: String, charIndex: Int, x: CGFloat, y: CGFloat) {
         NSLog("[Leo UI] Word tap received: char=\(char), context=\(context.prefix(20)), idx=\(charIndex)")
 
         let parser = ChineseParser()
         let word = parser.resolveExpressionAtPosition(context: context, charIndex: charIndex)
-        let entries = DictionaryEngine.shared.lookup(word)
-        let pinyin = entries.first?.pinyinDisplay ?? ""
-        let def = entries.first?.definitions.first ?? ""
-        familiarityTracker?.recordEncounter(word, pinyin: pinyin, definition: def)
         lastReadAloudSnippet = context
 
-        NSLog("[Leo UI] Encounter recorded for '\(word)'")
+        NSLog("[Leo UI] Dictionary opened for '\(word)'")
     }
 
     private func playReadAloud() async {
         let text = lastReadAloudSnippet.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         await ttsEngine.generate(text: text)
+        if ttsEngine.error == nil {
+            ttsEngine.play()
+        }
+    }
+
+    /// Reads `text` aloud via TTSEngine. Called by the read-aloud selection chip
+    /// when the user taps "Read aloud" after selecting text in the EPUB reader.
+    private func playReadAloudTTS(text: String) async {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        await ttsEngine.generate(text: trimmed)
         if ttsEngine.error == nil {
             ttsEngine.play()
         }
@@ -635,6 +621,7 @@ struct ReaderView: View {
             familiarityTracker?.markAsKnown(word)
         case .addToSRS:
             familiarityTracker?.markAsLearning(word)
+            FloatingDictionaryController.shared.markWordInSRS(word: word)
             let fsrs = FSRSEngine(modelContext: modelContext)
             if fsrs.card(for: word) == nil {
                 let sentenceContext = context.isEmpty ? nil : context
@@ -648,6 +635,7 @@ struct ReaderView: View {
             }
         case .setFamiliarity(let newState):
             familiarityTracker?.resetState(word, to: newState)
+            FloatingDictionaryController.shared.updateFamiliarity(newState, forWord: word)
         }
     }
 
@@ -971,27 +959,24 @@ private struct SearchBarView: View {
 /// They auto-hide with the same `chromeVisible` state as the top toolbar.
 /// Reading preferences use a `popover` anchored to the FAB (separate from the toolbar **Aa** popover).
 private struct FloatingActionButtons<ReadingPrefs: View>: View {
+    let chromeVisible: Bool
     let onLibrary: () -> Void
     let onVocabulary: () -> Void
+    let onReview: () -> Void
     let onToggleReadingPrefs: () -> Void
     @Binding var isReadingPrefsPresented: Bool
     @ViewBuilder let readingPrefsContent: () -> ReadingPrefs
 
     var body: some View {
         VStack(spacing: 12) {
-            FloatingButton(
-                icon: "books.vertical",
-                accessibilityLabel: "Library",
-                action: onLibrary
-            )
-            .accessibilityIdentifier("leo.fab.library")
+            fabButton(icon: "books.vertical", label: "Library", index: 0, action: onLibrary)
+                .accessibilityIdentifier("leo.fab.library")
 
-            FloatingButton(
-                icon: "character.book.closed",
-                accessibilityLabel: "Vocabulary",
-                action: onVocabulary
-            )
-            .accessibilityIdentifier("leo.fab.vocabulary")
+            fabButton(icon: "rectangle.stack", label: "Review", index: 1, action: onReview)
+                .accessibilityIdentifier("leo.fab.review")
+
+            fabButton(icon: "character.book.closed", label: "Vocabulary", index: 2, action: onVocabulary)
+                .accessibilityIdentifier("leo.fab.vocabulary")
 
             FloatingButton(
                 icon: "textformat.size",
@@ -999,6 +984,9 @@ private struct FloatingActionButtons<ReadingPrefs: View>: View {
                 action: onToggleReadingPrefs
             )
             .accessibilityIdentifier("leo.fab.settings")
+            .opacity(chromeVisible ? 1 : 0)
+            .scaleEffect(chromeVisible ? 1 : 0.8, anchor: .trailing)
+            .animation(.spring(duration: 0.35, bounce: 0.25).delay(3 * 0.05), value: chromeVisible)
             .popover(
                 isPresented: $isReadingPrefsPresented,
                 attachmentAnchor: .rect(.bounds),
@@ -1007,6 +995,15 @@ private struct FloatingActionButtons<ReadingPrefs: View>: View {
                 readingPrefsContent()
             }
         }
+        .frame(maxHeight: .infinity, alignment: .center)
+    }
+
+    @ViewBuilder
+    private func fabButton(icon: String, label: String, index: Int, action: @escaping () -> Void) -> some View {
+        FloatingButton(icon: icon, accessibilityLabel: label, action: action)
+            .opacity(chromeVisible ? 1 : 0)
+            .scaleEffect(chromeVisible ? 1 : 0.8, anchor: .trailing)
+            .animation(.spring(duration: 0.35, bounce: 0.25).delay(Double(index) * 0.05), value: chromeVisible)
     }
 }
 
@@ -1019,12 +1016,47 @@ private struct FloatingButton: View {
         Button(action: action) {
             Image(systemName: icon)
                 .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(.primary)
+                .foregroundStyle(.secondary)
                 .frame(width: 36, height: 36)
                 .background(.ultraThinMaterial, in: Circle())
-                .shadow(color: .black.opacity(0.15), radius: 4, y: 2)
+                .overlay(Circle().strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5))
+                .shadow(color: .black.opacity(0.18), radius: 6, y: 3)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(accessibilityLabel)
+    }
+}
+
+// MARK: - Indeterminate Progress Bar
+
+/// Thin animated bar shown at the top of the window during silent background operations.
+/// Mimics Safari's page-load indicator — no text, no capsule, no exposed internals.
+private struct IndeterminateProgressBar: View {
+    @State private var phase: CGFloat = 0
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Rectangle()
+                    .fill(Color.accentColor.opacity(0.15))
+                Rectangle()
+                    .fill(
+                        LinearGradient(
+                            colors: [Color.accentColor.opacity(0), Color.accentColor, Color.accentColor.opacity(0)],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                    .frame(width: geo.size.width * 0.45)
+                    .offset(x: (geo.size.width + geo.size.width * 0.45) * phase - geo.size.width * 0.45)
+            }
+        }
+        .frame(height: 2)
+        .onAppear {
+            withAnimation(.linear(duration: 1.4).repeatForever(autoreverses: false)) {
+                phase = 1
+            }
+        }
+        .accessibilityHidden(true)
     }
 }

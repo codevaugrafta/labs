@@ -81,7 +81,7 @@ window._leoLastPrefs = {
 window.__leoShowHighlights = true
 window.__leoShowPinyin = false
 
-const LEO_FONT_STACK = '"Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", serif'
+const LEO_FONT_STACK = '"Source Han Serif SC", "Noto Serif CJK SC", "Songti SC", "PingFang SC", serif'
 const LEO_LATIN_FONT_STACK = 'Georgia, "Times New Roman", serif'
 
 function buildLeoReaderBodyCSS() {
@@ -108,6 +108,7 @@ function buildLeoReaderBodyCSS() {
                 line-break: strict;
                 letter-spacing: 0.02em;
                 text-rendering: optimizeLegibility;
+                font-feature-settings: 'kern' 0;
                 -webkit-font-smoothing: antialiased;
                 transition: background-color 0.3s ease, color 0.3s ease;
                 ${p.pageStyle === 'page' ? 'box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.08);' : ''}
@@ -121,15 +122,19 @@ function buildLeoReaderBodyCSS() {
                 pointer-events: none;
                 z-index: 9999;
             }` : ''}
-            p { margin-bottom: 1.2em; }
+            p { margin-bottom: 1.2em; widows: 2; orphans: 2; }
             h1, h2, h3 { text-indent: 0; text-align: center; margin-top: 2em; font-family: ${LEO_FONT_STACK}; }
             :lang(en), :lang(fr), :lang(de), :lang(es) {
                 font-family: ${LEO_LATIN_FONT_STACK};
                 letter-spacing: 0;
             }
             ::selection { background: rgba(59,130,246,0.2); }
-            ruby { ruby-position: ${vertical ? 'over' : 'under'}; ruby-align: center; }
-            rt { font-size: 0.6em; opacity: 0.75; font-family: ${LEO_FONT_STACK}; }
+            ruby { ruby-position: over; ruby-align: center; }
+            rt { font-size: 0.6em; opacity: 0.72; font-family: ${LEO_FONT_STACK}; line-height: 1; }
+            /* Apple Books image constraints: prevent oversized images from breaking pagination */
+            img, svg { max-height: 95% !important; max-width: 100% !important; box-sizing: border-box; object-fit: contain; page-break-inside: avoid; }
+            /* Force transparent backgrounds on non-light themes to prevent EPUB inline white boxes leaking through */
+            ${t.bg !== '#FBFBFB' ? ':root *:not(a, a *) { background-color: transparent !important; }' : ''}
         `
 }
 
@@ -426,7 +431,6 @@ function _clearExpressionHighlight() {
         parent.normalize()
     }
     _highlightSpans = []
-    _highlightDoc = null
     _clearSentenceHighlight()
 }
 
@@ -589,7 +593,7 @@ window.highlightSentence = function(context, word, charIndex) {
         style.id = STYLE_ID
         style.textContent = `
             .leo-sentence-highlight {
-                background: rgba(59, 130, 246, 0.06);
+                background: rgba(255, 200, 60, 0.18);
                 border-radius: 2px;
                 transition: background 0.2s ease;
             }
@@ -692,6 +696,219 @@ window.highlightSentence = function(context, word, charIndex) {
             // background is a best-effort enhancement.
         } catch (_2) { /* ignore */ }
     }
+}
+
+// --- PERSISTENT VOCAB HIGHLIGHTS ---
+// Marks ALL occurrences of tracked vocabulary words with a subtle dotted underline.
+// State-colour mapping: seen/learning/familiar=purple, known=green.
+// Called by Swift after each chapter loads and after any vocab state change.
+
+const VOCAB_STYLE_ID = 'leo-vocab-highlight-styles'
+
+function _injectVocabStyles(doc) {
+    if (doc.getElementById(VOCAB_STYLE_ID)) return
+    const style = doc.createElement('style')
+    style.id = VOCAB_STYLE_ID
+    style.textContent = [
+        '[data-leo-vocab]{text-decoration-line:underline;text-decoration-style:dotted;',
+        'text-underline-offset:3px;text-decoration-thickness:1px;transition:text-decoration-color 0.3s ease;}',
+        '.leo-vocab-seen{text-decoration-color:rgba(147,51,234,0.3);}',
+        '.leo-vocab-learning{text-decoration-color:rgba(147,51,234,0.65);}',
+        '.leo-vocab-familiar{text-decoration-color:rgba(147,51,234,0.45);}',
+        '.leo-vocab-known{text-decoration-color:rgba(34,197,94,0.4);}',
+        'ruby[data-leo-ruby] rt{text-decoration:none!important;font-size:0.6em;opacity:0.72;}'
+    ].join('')
+    ;(doc.head || doc.documentElement).appendChild(style)
+}
+
+function _clearVocabHighlights(doc) {
+    doc.querySelectorAll('[data-leo-vocab]').forEach(span => {
+        const parent = span.parentNode
+        if (!parent) return
+        while (span.firstChild) parent.insertBefore(span.firstChild, span)
+        parent.removeChild(span)
+        parent.normalize()
+    })
+}
+
+// wordStateMap: plain JS object { "你好": "learning", "学习": "known", ... }
+window.applyVocabHighlights = function(wordStateMap) {
+    const doc = _highlightDoc
+    if (!doc || !doc.body) return
+    _injectVocabStyles(doc)
+    _clearVocabHighlights(doc)
+
+    const words = Object.keys(wordStateMap)
+    if (words.length === 0) return
+
+    // Longest-first so multi-char words match before single-char components
+    words.sort((a, b) => b.length - a.length)
+
+    // Snapshot all text nodes before any DOM mutation
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, {
+        acceptNode: node => {
+            let p = node.parentNode
+            while (p && p !== doc.body) {
+                const tag = p.tagName ? p.tagName.toUpperCase() : ''
+                const cls = p.className || ''
+                if (tag === 'RT') return NodeFilter.FILTER_REJECT
+                if (p.dataset && p.dataset.leoVocab) return NodeFilter.FILTER_REJECT
+                if (cls.includes('leo-expression-highlight') ||
+                    cls.includes('leo-sentence-highlight') ||
+                    cls.includes('leo-speaking')) return NodeFilter.FILTER_REJECT
+                p = p.parentNode
+            }
+            return NodeFilter.FILTER_ACCEPT
+        }
+    })
+
+    const nodes = []
+    while (walker.nextNode()) nodes.push(walker.currentNode)
+
+    for (const node of nodes) {
+        if (!node.parentNode) continue  // detached by a prior replacement
+        const text = node.textContent
+        if (!text.trim()) continue
+
+        // Collect ALL non-overlapping matches across all tracked words in this text node.
+        const matches = []
+        for (const w of words) {
+            let idx = 0
+            while ((idx = text.indexOf(w, idx)) !== -1) {
+                matches.push({ idx, word: w, len: w.length })
+                idx += w.length
+            }
+        }
+        if (matches.length === 0) continue
+
+        // Sort by position; resolve overlaps by keeping the first (longest-word-sorted) match.
+        matches.sort((a, b) => a.idx - b.idx || b.len - a.len)
+        const deduped = []
+        let lastEnd = 0
+        for (const m of matches) {
+            if (m.idx >= lastEnd) { deduped.push(m); lastEnd = m.idx + m.len }
+        }
+
+        // Replace the text node with a DocumentFragment: text runs + vocab spans.
+        try {
+            const frag = doc.createDocumentFragment()
+            let pos = 0
+            for (const m of deduped) {
+                if (m.idx > pos) frag.appendChild(doc.createTextNode(text.slice(pos, m.idx)))
+                const span = doc.createElement('span')
+                span.dataset.leoVocab = '1'
+                span.className = 'leo-vocab-' + wordStateMap[m.word]
+                span.textContent = text.slice(m.idx, m.idx + m.len)
+                frag.appendChild(span)
+                pos = m.idx + m.len
+            }
+            if (pos < text.length) frag.appendChild(doc.createTextNode(text.slice(pos)))
+            node.parentNode.replaceChild(frag, node)
+        } catch (_) { /* skip on DOM mutation edge-cases */ }
+    }
+}
+
+// --- PINYIN RUBY ANNOTATIONS ---
+// Wraps tracked vocabulary words (seen/learning/familiar) in <ruby> elements with
+// tone-marked pinyin above. Applied AFTER vocab highlights so pinyin also shows on
+// underlined words. Controlled by the showPinyin reading preference.
+
+function _clearPinyinRuby(doc) {
+    doc.querySelectorAll('ruby[data-leo-ruby]').forEach(ruby => {
+        const parent = ruby.parentNode
+        if (!parent) return
+        // Move all children except <rt> back to parent, then remove the ruby.
+        Array.from(ruby.childNodes).forEach(child => {
+            if (child.tagName && child.tagName.toUpperCase() === 'RT') return
+            parent.insertBefore(child, ruby)
+        })
+        parent.removeChild(ruby)
+        parent.normalize()
+    })
+}
+
+// pinyinMap: { "学习": "xuéxí", "你好": "nǐ hǎo", ... }
+// Only called when showPinyin is true and pinyinMap is non-empty.
+window.applyPinyinRuby = function(pinyinMap) {
+    const doc = _highlightDoc
+    if (!doc || !doc.body) return
+    _clearPinyinRuby(doc)
+
+    const words = Object.keys(pinyinMap)
+    if (words.length === 0) return
+
+    // Longest-first so multi-char words match before single-char components
+    words.sort((a, b) => b.length - a.length)
+
+    const walker = doc.createTreeWalker(doc.body, NodeFilter.SHOW_TEXT, {
+        acceptNode: node => {
+            let p = node.parentNode
+            while (p && p !== doc.body) {
+                const tag = p.tagName ? p.tagName.toUpperCase() : ''
+                if (tag === 'RT') return NodeFilter.FILTER_REJECT  // skip existing pinyin text
+                if (p.dataset && p.dataset.leoRuby) return NodeFilter.FILTER_REJECT  // already wrapped
+                if (p.classList) {
+                    const cls = Array.from(p.classList).join(' ')
+                    if (cls.includes('leo-expression-highlight') ||
+                        cls.includes('leo-sentence-highlight') ||
+                        cls.includes('leo-speaking')) return NodeFilter.FILTER_REJECT
+                }
+                p = p.parentNode
+            }
+            return NodeFilter.FILTER_ACCEPT
+        }
+    })
+
+    const nodes = []
+    while (walker.nextNode()) nodes.push(walker.currentNode)
+
+    for (const node of nodes) {
+        if (!node.parentNode) continue
+        const text = node.textContent
+        if (!text.trim()) continue
+
+        const matches = []
+        for (const w of words) {
+            let idx = 0
+            while ((idx = text.indexOf(w, idx)) !== -1) {
+                matches.push({ idx, word: w, len: w.length })
+                idx += w.length
+            }
+        }
+        if (matches.length === 0) continue
+
+        matches.sort((a, b) => a.idx - b.idx || b.len - a.len)
+        const deduped = []
+        let lastEnd = 0
+        for (const m of matches) {
+            if (m.idx >= lastEnd) { deduped.push(m); lastEnd = m.idx + m.len }
+        }
+
+        try {
+            const frag = doc.createDocumentFragment()
+            let pos = 0
+            for (const m of deduped) {
+                if (m.idx > pos) frag.appendChild(doc.createTextNode(text.slice(pos, m.idx)))
+                const ruby = doc.createElement('ruby')
+                ruby.dataset.leoRuby = '1'
+                ruby.appendChild(doc.createTextNode(text.slice(m.idx, m.idx + m.len)))
+                const rt = doc.createElement('rt')
+                rt.textContent = pinyinMap[m.word]
+                ruby.appendChild(rt)
+                frag.appendChild(ruby)
+                pos = m.idx + m.len
+            }
+            if (pos < text.length) frag.appendChild(doc.createTextNode(text.slice(pos)))
+            node.parentNode.replaceChild(frag, node)
+        } catch (_) { /* skip on DOM mutation edge-cases */ }
+    }
+}
+
+// Clear pinyin ruby annotations (called when showPinyin is toggled off).
+window.clearPinyinRuby = function() {
+    const doc = _highlightDoc
+    if (!doc) return
+    _clearPinyinRuby(doc)
 }
 
 // --- SPEAKING HIGHLIGHT FUNCTIONS ---
@@ -888,7 +1105,7 @@ function injectClickHandlers(doc, chapterIndex) {
                 text-decoration-color: rgba(59,130,246,0.8);
             }
             .leo-sentence-highlight {
-                background: rgba(59, 130, 246, 0.06);
+                background: rgba(255, 200, 60, 0.18);
                 border-radius: 2px;
                 transition: background 0.2s ease;
             }
@@ -899,6 +1116,26 @@ function injectClickHandlers(doc, chapterIndex) {
 
     // Also inject navigation
     injectNavigationHandlers(doc)
+
+    // Selection-to-TTS bridge: fires when the user finishes selecting text.
+    // Guard prevents double-installation if injectClickHandlers is called again
+    // for the same iframe document (e.g. after a re-render).
+    if (!doc.__leoSelectionListenerInstalled) {
+        doc.__leoSelectionListenerInstalled = true
+        doc.addEventListener('selectionchange', () => {
+            const sel = doc.getSelection()
+            if (!sel || sel.isCollapsed) {
+                postToSwift('selectionChange', { text: '' })
+                return
+            }
+            const text = sel.toString().trim()
+            // Only post when there is real text — ignore selection of whitespace only.
+            if (text.length > 0) {
+                postToSwift('selectionChange', { text })
+            }
+        })
+    }
+
     doc.addEventListener('click', (event) => {
         // Guard 1: the element directly under the pointer must be (or contain) a
         // text node — not a bare body/html/empty div.  caretRangeFromPoint snaps

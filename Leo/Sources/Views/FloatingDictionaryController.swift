@@ -5,7 +5,7 @@ import SwiftUI
 
 /// Singleton that owns the floating NSPanel and routes word-tap events to it.
 ///
-/// Action callbacks (onKnow, onReview, onListen) are injected at `show()` time
+/// Action callbacks (onReview, onListen) are injected at `show()` time
 /// by the WKWebView Coordinator, which already holds references to
 /// FamiliarityTracker and FSRSEngine via the existing `onPopupAction` bridge.
 /// This avoids threading SwiftData's ModelContext through another layer.
@@ -15,7 +15,6 @@ import SwiftUI
 /// FloatingDictionaryController.shared.show(
 ///     data: lookupData,
 ///     screenPoint: screenPoint,
-///     onKnow: { coordinator.onPopupAction(.markKnown, word) },
 ///     onReview: { coordinator.onPopupAction(.addToSRS, word) },
 ///     onListen: { NotificationCenter.default.post(name: .leoPlayTTS, object: word) }
 /// )
@@ -33,7 +32,6 @@ final class FloatingDictionaryController {
     private var currentWord: String?
     /// The full data snapshot for the current panel, so we can inject the gloss when it arrives.
     private var currentData: DictionaryLookupData?
-    private var currentOnKnow: (() -> Void)?
     private var currentOnReview: (() -> Void)?
     private var currentOnListen: (() -> Void)?
     private var currentOnFamiliarityChange: ((FamiliarityState) -> Void)?
@@ -58,44 +56,42 @@ final class FloatingDictionaryController {
     func show(
         data: DictionaryLookupData,
         screenPoint: CGPoint,
-        onKnow: @escaping () -> Void,
         onReview: @escaping () -> Void,
         onListen: @escaping () -> Void,
         onFamiliarityChange: @escaping (FamiliarityState) -> Void
     ) {
         currentWord = data.word
         currentData = data
-        currentOnKnow = onKnow
         currentOnReview = onReview
         currentOnListen = onListen
         currentOnFamiliarityChange = onFamiliarityChange
         lastScreenPoint = screenPoint
 
         if let existingPanel = panel {
-            updateContent(in: existingPanel, data: data, onKnow: onKnow, onReview: onReview, onListen: onListen, onFamiliarityChange: onFamiliarityChange)
+            updateContent(in: existingPanel, data: data, onReview: onReview, onListen: onListen, onFamiliarityChange: onFamiliarityChange)
             repositionPanel(existingPanel, near: screenPoint)
             if !existingPanel.isVisible {
                 existingPanel.orderFront(nil)
             }
         } else {
-            let newPanel = makePanel(data: data, onKnow: onKnow, onReview: onReview, onListen: onListen, onFamiliarityChange: onFamiliarityChange)
+            let newPanel = makePanel(data: data, onReview: onReview, onListen: onListen, onFamiliarityChange: onFamiliarityChange)
             self.panel = newPanel
             repositionPanel(newPanel, near: screenPoint)
 
             newPanel.alphaValue = 0
             newPanel.setFrame(
-                NSRect(x: newPanel.frame.origin.x, y: newPanel.frame.origin.y - 8,
+                NSRect(x: newPanel.frame.origin.x, y: newPanel.frame.origin.y - 12,
                        width: newPanel.frame.width, height: newPanel.frame.height),
                 display: false
             )
             newPanel.orderFront(nil)
 
             NSAnimationContext.runAnimationGroup { ctx in
-                ctx.duration = 0.25
-                ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
+                ctx.duration = 0.3
+                ctx.timingFunction = CAMediaTimingFunction(controlPoints: 0.34, 1.56, 0.64, 1)
                 newPanel.animator().alphaValue = 1
                 newPanel.animator().setFrame(
-                    NSRect(x: newPanel.frame.origin.x, y: newPanel.frame.origin.y + 8,
+                    NSRect(x: newPanel.frame.origin.x, y: newPanel.frame.origin.y + 12,
                            width: newPanel.frame.width, height: newPanel.frame.height),
                     display: true
                 )
@@ -116,9 +112,11 @@ final class FloatingDictionaryController {
             ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
             panel.animator().alphaValue = 0
         }, completionHandler: { [weak self] in
-            panel.orderOut(nil)
-            panel.alphaValue = 1
-            self?.removeMonitors()
+            DispatchQueue.main.async {
+                panel.orderOut(nil)
+                panel.alphaValue = 1
+                self?.removeMonitors()
+            }
         })
     }
 
@@ -126,14 +124,12 @@ final class FloatingDictionaryController {
 
     private func makePanel(
         data: DictionaryLookupData,
-        onKnow: @escaping () -> Void,
         onReview: @escaping () -> Void,
         onListen: @escaping () -> Void,
         onFamiliarityChange: @escaping (FamiliarityState) -> Void
     ) -> FloatingDictionaryPanel {
         let content = FloatingDictionaryContent(
             data: data,
-            onKnow: { onKnow() },
             onReview: { onReview() },
             onListen: { onListen() },
             onDismiss: { [weak self] in self?.dismiss() },
@@ -152,14 +148,12 @@ final class FloatingDictionaryController {
     private func updateContent(
         in panel: FloatingDictionaryPanel,
         data: DictionaryLookupData,
-        onKnow: @escaping () -> Void,
         onReview: @escaping () -> Void,
         onListen: @escaping () -> Void,
         onFamiliarityChange: @escaping (FamiliarityState) -> Void
     ) {
         let newContent = FloatingDictionaryContent(
             data: data,
-            onKnow: { onKnow() },
             onReview: { onReview() },
             onListen: { onListen() },
             onDismiss: { [weak self] in self?.dismiss() },
@@ -184,10 +178,66 @@ final class FloatingDictionaryController {
             object: nil,
             queue: .main
         ) { [weak self] notification in
-            guard let self,
-                  let word = notification.userInfo?["word"] as? String,
+            guard let word = notification.userInfo?["word"] as? String,
                   let gloss = notification.userInfo?["context"] as? String else { return }
-            self.updateContextualGloss(word: word, gloss: gloss)
+            Task { @MainActor [weak self] in
+                self?.updateContextualGloss(word: word, gloss: gloss)
+            }
+        }
+    }
+
+    /// Mark the gloss slot as loading (before an OpenRouter request) or done.
+    func setGlossLoading(_ loading: Bool) {
+        guard var data = currentData,
+              let onReview = currentOnReview,
+              let onListen = currentOnListen,
+              let onFamiliarityChange = currentOnFamiliarityChange else { return }
+        data.isLoadingGloss = loading
+        currentData = data
+        if let existingPanel = panel {
+            updateContent(in: existingPanel, data: data, onReview: onReview, onListen: onListen, onFamiliarityChange: onFamiliarityChange)
+        }
+    }
+
+    /// Updates the familiarity dots in the panel to reflect a state change without dismissing.
+    func updateFamiliarity(_ newState: FamiliarityState, forWord word: String) {
+        guard word == currentWord,
+              var data = currentData,
+              let onReview = currentOnReview,
+              let onListen = currentOnListen,
+              let onFamiliarityChange = currentOnFamiliarityChange else { return }
+        data = DictionaryLookupData(
+            word: data.word, pinyin: data.pinyin, definitions: data.definitions,
+            hskLevel: data.hskLevel, grammarTitle: data.grammarTitle, grammarLevel: data.grammarLevel,
+            familiarity: newState, alreadyInReview: data.alreadyInReview,
+            components: data.components, radical: data.radical,
+            contextualGloss: data.contextualGloss, isLoadingGloss: data.isLoadingGloss,
+            contextSentence: data.contextSentence
+        )
+        currentData = data
+        if let existingPanel = panel {
+            updateContent(in: existingPanel, data: data, onReview: onReview, onListen: onListen, onFamiliarityChange: onFamiliarityChange)
+        }
+    }
+
+    /// Marks the word as in-SRS in the panel (changes "Add to SRS" → "In SRS") without dismissing.
+    func markWordInSRS(word: String) {
+        guard word == currentWord,
+              var data = currentData,
+              let onReview = currentOnReview,
+              let onListen = currentOnListen,
+              let onFamiliarityChange = currentOnFamiliarityChange else { return }
+        data = DictionaryLookupData(
+            word: data.word, pinyin: data.pinyin, definitions: data.definitions,
+            hskLevel: data.hskLevel, grammarTitle: data.grammarTitle, grammarLevel: data.grammarLevel,
+            familiarity: data.familiarity, alreadyInReview: true,
+            components: data.components, radical: data.radical,
+            contextualGloss: data.contextualGloss, isLoadingGloss: data.isLoadingGloss,
+            contextSentence: data.contextSentence
+        )
+        currentData = data
+        if let existingPanel = panel {
+            updateContent(in: existingPanel, data: data, onReview: onReview, onListen: onListen, onFamiliarityChange: onFamiliarityChange)
         }
     }
 
@@ -195,16 +245,16 @@ final class FloatingDictionaryController {
     private func updateContextualGloss(word: String, gloss: String) {
         guard word == currentWord,
               var data = currentData,
-              let onKnow = currentOnKnow,
               let onReview = currentOnReview,
               let onListen = currentOnListen,
               let onFamiliarityChange = currentOnFamiliarityChange else { return }
 
         data.contextualGloss = gloss
+        data.isLoadingGloss = false
         currentData = data
 
         if let existingPanel = panel {
-            updateContent(in: existingPanel, data: data, onKnow: onKnow, onReview: onReview, onListen: onListen, onFamiliarityChange: onFamiliarityChange)
+            updateContent(in: existingPanel, data: data, onReview: onReview, onListen: onListen, onFamiliarityChange: onFamiliarityChange)
             repositionPanel(existingPanel, near: lastScreenPoint)
         }
     }
@@ -253,7 +303,7 @@ final class FloatingDictionaryController {
         hostingView?.layoutSubtreeIfNeeded()
 
         let size = panel.contentView?.fittingSize ?? CGSize(width: 340, height: 180)
-        let verticalOffset: CGFloat = 12
+        let verticalOffset: CGFloat = 28
 
         guard let screen = NSScreen.screens.first(where: { NSMouseInCocoaScreen($0) })
             ?? NSScreen.main
