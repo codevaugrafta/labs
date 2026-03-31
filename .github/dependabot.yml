@@ -1,0 +1,41 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/pomodoro"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      npm-prod:
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+      npm-dev:
+        dependency-type: "development"
+    reviewers:
+      - "codevaugrafta"
+  - package-ecosystem: "npm"
+    directory: "/focus-node"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      npm-prod:
+        dependency-type: "production"
+      npm-dev:
+        dependency-type: "development"
+    reviewers:
+      - "codevaugrafta"
+  - package-ecosystem: "npm"
+    directory: "/syncreader"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    groups:
+      npm-prod:
+        dependency-type: "production"
+      npm-dev:
+        dependency-type: "development"
+    reviewers:
+      - "codevaugrafta"
